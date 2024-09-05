@@ -12,4 +12,10 @@ bootloader_api = "0.11.7"
 [dependencies.noto-sans-mono-bitmap]
 version = "0.3.0"
 default-features = false
-features = ["regular", "size_16", "unicode-basic-latin", "unicode-specials"]
+features = [
+    "light",
+    "size_16",
+    "size_24",
+    "unicode-basic-latin",
+    "unicode-specials",
+]

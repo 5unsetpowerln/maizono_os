@@ -7,8 +7,8 @@ mod graphic;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use graphic::framebuffer::FrameBuffer;
-use graphic::RgbColor;
+use graphic::framebuffer::FrameBufferWriter;
+use graphic::{font, RgbColor};
 
 static HELLO: &[u8] = b"Hello World!";
 
@@ -19,18 +19,18 @@ pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
         .framebuffer
         .take()
         .expect("failed to get framebuffer.");
-    let mut framebuffer = FrameBuffer::from_bootloader_api(&mut framebuffer_from_bootloader)
-        .expect("Failed to create FrameBuffer from Framebuffer-in-bootloader_api");
+    let mut framebuffer_writer =
+        FrameBufferWriter::from_bootloader_api(&mut framebuffer_from_bootloader)
+            .expect("Failed to create FrameBuffer from Framebuffer-in-bootloader_api");
 
-    for x in 0..framebuffer.width() {
-        for y in 0..framebuffer.height() {
-            framebuffer.pixel_write(x, y, RgbColor::new(0xff, 0xff, 0xff));
+    for x in 0..framebuffer_writer.width() {
+        for y in 0..framebuffer_writer.height() {
+            framebuffer_writer.pixel_write(x, y, &RgbColor::new(0xeb, 0xdb, 0xb2));
         }
     }
-    for x in 0..=200 {
-        for y in 0..=200 {
-            framebuffer.pixel_write(x, y, RgbColor::new(0x00, 0xff, 0x00))
-        }
+
+    for (i, c) in HELLO.iter().enumerate() {
+        framebuffer_writer.write_ascii(font::WIDTH * i, 0, *c, &RgbColor::new(0x28, 0x28, 0x28));
     }
 
     loop {
