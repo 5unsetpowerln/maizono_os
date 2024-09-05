@@ -2,12 +2,12 @@
 #![no_main]
 
 mod error;
-mod framebuffer;
+mod graphic;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use framebuffer::{FrameBuffer, RgbColor};
+use graphic::framebuffer::{FrameBuffer, RgbColor};
 
 static HELLO: &[u8] = b"Hello World!";
 

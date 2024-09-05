@@ -1,6 +1,4 @@
-mod error;
-
-pub type Error = error::FrameBufferError;
+pub type Error = super::error::FrameBufferError;
 
 struct FrameBufferInfo {
     width: usize,
@@ -82,31 +80,4 @@ fn pixel_write_bgr(buffer: &mut [u8], info: &FrameBufferInfo, x: usize, y: usize
     buffer[pixel_position * info.bytes_per_pixel] = color.blue;
     buffer[pixel_position * info.bytes_per_pixel + 1] = color.green;
     buffer[pixel_position * info.bytes_per_pixel + 2] = color.red;
-}
-
-pub struct RgbColor {
-    pub red: u8,
-    pub green: u8,
-    pub blue: u8,
-}
-
-impl RgbColor {
-    const MAX_U32: u32 = 0xffffff;
-
-    pub fn new(red: u8, green: u8, blue: u8) -> Self {
-        Self { red, green, blue }
-    }
-
-    // #[inline]
-    pub fn from_u32(value: u32) -> Option<Self> {
-        if value <= Self::MAX_U32 {
-            let red = u8::try_from(value & 0xff0000).unwrap();
-            let green = u8::try_from(value & 0x00ff00).unwrap();
-            let blue = u8::try_from(value & 0x0000ff).unwrap();
-
-            Some(Self { red, green, blue })
-        } else {
-            return None;
-        }
-    }
 }
