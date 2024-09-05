@@ -1,3 +1,5 @@
+use super::RgbColor;
+
 pub type Error = super::error::FrameBufferError;
 
 struct FrameBufferInfo {
@@ -52,6 +54,13 @@ impl<'a> FrameBuffer<'a> {
             pixel_write,
         })
     }
+
+    // pub fn write_char(&mut self, c: char) {
+    //     match c {
+    //         '\n' => todo!(),
+    //         ''
+    //     }
+    // }
 
     pub fn pixel_write(&mut self, x: usize, y: usize, color: RgbColor) {
         (self.pixel_write)(self.buffer, &self.info, x, y, color);
