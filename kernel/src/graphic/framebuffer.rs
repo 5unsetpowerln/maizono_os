@@ -1,3 +1,5 @@
+use core::fmt;
+
 use super::{font::FONT, RgbColor};
 
 pub type Error = super::error::FrameBufferError;
@@ -55,24 +57,6 @@ impl<'a> FrameBufferWriter<'a> {
             buffer,
             pixel_write,
         })
-    }
-
-    /// Writes a normal character to framebuffer
-    /// Doesn't Write special control characters such as newline and carriage returns;
-    pub fn write_ascii(&mut self, x: usize, y: usize, c: u8, color: &RgbColor) {
-        if c < 0x20 || c > 0x7e {
-            return;
-        }
-
-        let font = FONT[(c - 0x20) as usize];
-        for (y_offset, row) in font.iter().enumerate() {
-            for x_offset in 0..super::font::WIDTH {
-                // self.pixel_write(x + x_offset, y + y_offset, color);
-                if (row >> x_offset) & 1 == 1 {
-                    self.pixel_write(x + (super::font::WIDTH - x_offset), y + y_offset, color)
-                }
-            }
-        }
     }
 
     pub fn pixel_write(&mut self, x: usize, y: usize, color: &RgbColor) {

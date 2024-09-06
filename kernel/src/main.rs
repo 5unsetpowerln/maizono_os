@@ -29,9 +29,13 @@ pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
         }
     }
 
-    for (i, c) in HELLO.iter().enumerate() {
-        framebuffer_writer.write_ascii(font::WIDTH * i, 0, *c, &RgbColor::new(0x28, 0x28, 0x28));
-    }
+    font::write_ascii_string(
+        &mut framebuffer_writer,
+        100,
+        100,
+        b"Konosuba!",
+        &RgbColor::new(0x28, 0x28, 0x28),
+    );
 
     loop {
         unsafe { asm!("hlt") }
