@@ -7,35 +7,29 @@ mod graphic;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use graphic::framebuffer::FrameBufferWriter;
-use graphic::{font, RgbColor};
-
-static HELLO: &[u8] = b"Hello World!";
+use graphic::{
+    console,
+    framebuffer::{self, FrameBufferError},
+    GraphicInfo, Pixel, RgbColor,
+};
 
 /// kernel entrypoint
 pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
-    // initialize framebuffer
-    let mut framebuffer_from_bootloader = boot_info
-        .framebuffer
-        .take()
-        .expect("failed to get framebuffer.");
-    let mut framebuffer_writer =
-        FrameBufferWriter::from_bootloader_api(&mut framebuffer_from_bootloader)
-            .expect("Failed to create FrameBuffer from Framebuffer-in-bootloader_api");
-
-    for x in 0..framebuffer_writer.width() {
-        for y in 0..framebuffer_writer.height() {
-            framebuffer_writer.pixel_write(x, y, &RgbColor::new(0xeb, 0xdb, 0xb2));
-        }
-    }
-
-    font::write_ascii_string(
-        &mut framebuffer_writer,
-        100,
-        100,
-        b"Konosuba!",
-        &RgbColor::new(0x28, 0x28, 0x28),
+    // generate maizono's informations from bootloader_api's informations.
+    let graphic_info = GraphicInfo::from(
+        boot_info
+            .framebuffer
+            .take()
+            .expect("failed to get framebuffer."),
     );
+
+    // init framebuffer
+    framebuffer::init(&graphic_info, RgbColor::from(0x28282800));
+
+    // init console
+    console::init(RgbColor::from(0x28282800), RgbColor::from(0xebdbb200));
+
+    printk!("favorite anime: {}", "konosuba!");
 
     loop {
         unsafe { asm!("hlt") }

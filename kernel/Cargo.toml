@@ -8,6 +8,10 @@ edition = "2021"
 [dependencies]
 thiserror-no-std = "2.0.2"
 bootloader_api = "0.11.7"
+once_cell = { version = "1.19.0", features = [
+    "critical-section",
+], default-features = false }
+
 
 [dependencies.noto-sans-mono-bitmap]
 version = "0.3.0"

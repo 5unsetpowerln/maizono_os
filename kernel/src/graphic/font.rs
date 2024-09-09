@@ -1,14 +1,19 @@
-use core::fmt;
-
-use super::{framebuffer::FrameBufferWriter, RgbColor};
-
-pub type AsciiFontW8H16 = [[u8; 16]; 128];
-
-pub const FONT_WIDTH: usize = 8;
-pub const FONT_HEIGHT: usize = 16;
-
-pub const FONT: AsciiFontW8H16 = TAMZEN_FONT;
-const TAMZEN_FONT: AsciiFontW8H16 = [
+pub const FONT: FontW8H16 = FONT_W8_H16;
+pub struct FontW8H16 {
+    pub font: FontArrayW8H16,
+    pub unprintable: FontCharW8H16,
+    pub width: usize,
+    pub height: usize,
+}
+const FONT_W8_H16: FontW8H16 = FontW8H16 {
+    font: TAMZEN_ASCII_W8H16,
+    unprintable: TAMZEN_ASCII_W8H16[0],
+    width: 8,
+    height: 16,
+};
+pub type FontCharW8H16 = [u8; 16];
+pub type FontArrayW8H16 = [FontCharW8H16; 128];
+const TAMZEN_ASCII_W8H16: FontArrayW8H16 = [
     [0, 0, 0, 0, 126, 66, 66, 66, 66, 66, 66, 126, 0, 0, 0, 0],
     [0, 0, 0, 0, 126, 66, 66, 66, 66, 66, 66, 126, 0, 0, 0, 0],
     [0, 0, 0, 0, 126, 66, 66, 66, 66, 66, 66, 126, 0, 0, 0, 0],
@@ -138,36 +143,3 @@ const TAMZEN_FONT: AsciiFontW8H16 = [
     [0, 0, 49, 73, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [0, 0, 0, 0, 126, 66, 66, 66, 66, 66, 66, 126, 0, 0, 0, 0],
 ];
-
-/// Writes a normal ascii character to framebuffer.
-/// Checks if a given character is in the range of ascii.
-/// Doesn't Write special control characters such as newline and carriage returns.
-fn write_ascii(writer: &mut FrameBufferWriter, x: usize, y: usize, c: u8, color: &RgbColor) {
-    if !c.is_ascii() {
-        return;
-    }
-    for (y_offset, row) in FONT[c as usize].iter().enumerate() {
-        for x_offset in 0..super::font::FONT_WIDTH {
-            if (row >> x_offset) & 1 == 1 {
-                writer.pixel_write(
-                    x + (super::font::FONT_WIDTH - x_offset),
-                    y + y_offset,
-                    color,
-                )
-            }
-        }
-    }
-}
-
-/// Writes a normal ascii string to framebuffer.
-pub fn write_ascii_string(
-    writer: &mut FrameBufferWriter,
-    x: usize,
-    y: usize,
-    s: &[u8],
-    color: &RgbColor,
-) {
-    for (i, c) in s.iter().enumerate() {
-        write_ascii(writer, x + i * FONT_WIDTH, y, *c, color);
-    }
-}
