@@ -11,6 +11,7 @@ bootloader_api = "0.11.7"
 once_cell = { version = "1.19.0", features = [
     "critical-section",
 ], default-features = false }
+common = { path = "../common" }
 
 
 [dependencies.noto-sans-mono-bitmap]

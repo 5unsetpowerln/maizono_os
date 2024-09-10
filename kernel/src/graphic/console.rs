@@ -3,11 +3,12 @@ use core::{
     str,
 };
 
+use common::graphic::RgbColor;
 use once_cell::sync::Lazy;
 
 use crate::error::Result;
 
-use super::{font::FONT, framebuffer, RgbColor};
+use super::{font::FONT, framebuffer};
 
 const ROWS: usize = 25;
 const COLUMNS: usize = 80;
@@ -144,6 +145,7 @@ macro_rules! printk {
                     it isn't impossible to return the error so, \
                     the kernel panicked.",
                 ).write_fmt(core::format_args!($($arg)*));
+            crate::graphic::console::println("");
         }
     }};
 }

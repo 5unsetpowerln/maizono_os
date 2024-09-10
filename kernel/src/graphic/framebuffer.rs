@@ -3,8 +3,9 @@ use core::fmt;
 use once_cell::sync::Lazy;
 
 use crate::error::Result;
+use common::graphic::{GraphicInfo, Pixel, PixelFormat, RgbColor};
 
-use super::{font::FONT, GraphicInfo, Pixel, PixelFormat, RgbColor};
+use super::font::FONT;
 
 static mut FRAME_BUF: Lazy<Option<FrameBuf>> = Lazy::new(|| None);
 
@@ -56,6 +57,41 @@ impl FrameBuf {
                     Err(err) => return Err(err),
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn fill_rect(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        color: RgbColor,
+    ) -> Result<()> {
+        for x_inner in x..x + width {
+            for y_inner in y..y + height {
+                self.write_pixel(x_inner, y_inner, color.into())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn draw_rect(
+        &mut self,
+        x: usize,
+        y: usize,
+        width: usize,
+        height: usize,
+        color: RgbColor,
+    ) -> Result<()> {
+        for x_inner in x..x + width {
+            self.write_pixel(x_inner, y, color.into());
+            self.write_pixel(x_inner, y + height - 1, color.into());
+        }
+        for y_inner in y..y + height {
+            self.write_pixel(x, y_inner, color.into());
+            self.write_pixel(x + width - 1, y_inner, color.into());
         }
         Ok(())
     }
@@ -132,6 +168,7 @@ fn write_pixel_bgr(self_: &mut FrameBuf, x: usize, y: usize, pixel: Pixel) -> Re
     unsafe {
         *pixel_ref = pixel.le();
     };
+    // }
     Ok(())
 }
 
@@ -169,6 +206,36 @@ pub fn write_string(x: usize, y: usize, s: &str, color: RgbColor) -> Result<()> 
             .as_mut()
             .ok_or(FrameBufferError::NotInitializedError)?
             .write_string(x, y, s, color)?;
+    }
+    Ok(())
+}
+
+pub fn fill(color: RgbColor) -> Result<()> {
+    unsafe {
+        FRAME_BUF
+            .as_mut()
+            .ok_or(FrameBufferError::NotInitializedError)?
+            .fill(color)?;
+    }
+    Ok(())
+}
+
+pub fn fill_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColor) -> Result<()> {
+    unsafe {
+        FRAME_BUF
+            .as_mut()
+            .ok_or(FrameBufferError::NotInitializedError)?
+            .fill_rect(x, y, width, height, color)?;
+    }
+    Ok(())
+}
+
+pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColor) -> Result<()> {
+    unsafe {
+        FRAME_BUF
+            .as_mut()
+            .ok_or(FrameBufferError::NotInitializedError)?
+            .draw_rect(x, y, width, height, color)?;
     }
     Ok(())
 }

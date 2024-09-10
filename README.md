@@ -1,2 +1,4 @@
 # Maizono OS
-My operating system for learning. Currently, Currently, I'm working on [Writing an OS in Rust](https://os.phil-opp.com/ja/)
+I'm developing my own OS for the first time.
+- [ ] Create a kernel by following flow of the [MikanOS](https://github.com/uchan-nos/mikanos) in Rust. *Current*
+- [ ] Create a bootloader from scratch.

@@ -7,16 +7,17 @@ mod graphic;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
+use common::graphic::RgbColor;
 use graphic::{
     console,
-    framebuffer::{self, FrameBufferError},
-    GraphicInfo, Pixel, RgbColor,
+    framebuffer::{self},
+    mouse,
 };
 
 /// kernel entrypoint
 pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
     // generate maizono's informations from bootloader_api's informations.
-    let graphic_info = GraphicInfo::from(
+    let graphic_info = common::graphic::GraphicInfo::from(
         boot_info
             .framebuffer
             .take()
@@ -29,8 +30,10 @@ pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
     // init console
     console::init(RgbColor::from(0x28282800), RgbColor::from(0xebdbb200));
 
+    framebuffer::fill_rect(100, 100, 100, 100, RgbColor::from(0xcc241d00));
     printk!("favorite anime: {}", "konosuba!");
 
+    mouse::draw_cursor();
     loop {
         unsafe { asm!("hlt") }
     }
