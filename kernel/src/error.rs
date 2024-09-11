@@ -1,10 +1,14 @@
-use crate::graphic::{console::ConsoleError, framebuffer::FrameBufferError, mouse::MouseError};
+use crate::{
+    graphic::{console::ConsoleError, framebuffer::FrameBufferError, mouse::MouseError},
+    pci::PciError,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     FrameBufferError(FrameBufferError),
     ConsoleError(ConsoleError),
     MouseError(MouseError),
+    PciError(PciError),
 }
 
 impl From<FrameBufferError> for Error {
@@ -22,6 +26,12 @@ impl From<ConsoleError> for Error {
 impl From<MouseError> for Error {
     fn from(err: MouseError) -> Self {
         Self::MouseError(err)
+    }
+}
+
+impl From<PciError> for Error {
+    fn from(err: PciError) -> Self {
+        Self::PciError(err)
     }
 }
 

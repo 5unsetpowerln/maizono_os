@@ -1,8 +1,11 @@
 #![no_std]
 #![no_main]
 
+// extern crate alloc;
+
 mod error;
 mod graphic;
+mod pci;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -11,7 +14,6 @@ use common::graphic::RgbColor;
 use graphic::{
     console,
     framebuffer::{self},
-    mouse,
 };
 
 /// kernel entrypoint
@@ -30,10 +32,27 @@ pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
     // init console
     console::init(RgbColor::from(0x28282800), RgbColor::from(0xebdbb200));
 
-    framebuffer::fill_rect(100, 100, 100, 100, RgbColor::from(0xcc241d00));
-    printk!("favorite anime: {}", "konosuba!");
+    framebuffer::draw_rect(100, 100, 100, 100, RgbColor::from(0xcc241d00));
 
-    mouse::draw_cursor();
+    match pci::scan_all_bus() {
+        Ok(_) => {
+            let devices = match pci::get_devices() {
+                Ok(d) => d,
+                Err(err) => {
+                    printk!("Failed to get devices: {:?}", err);
+                    panic!();
+                }
+            };
+
+            for (i, device) in devices.enumerate() {
+                printk!("device {}: {:?}", i, device);
+            }
+        }
+        Err(err) => {
+            printk!("failed to scann all the bus: {:?}", err)
+        }
+    }
+
     loop {
         unsafe { asm!("hlt") }
     }

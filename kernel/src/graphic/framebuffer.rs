@@ -1,5 +1,3 @@
-use core::fmt;
-
 use once_cell::sync::Lazy;
 
 use crate::error::Result;
