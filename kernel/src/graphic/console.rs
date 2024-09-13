@@ -4,20 +4,21 @@ use core::{
 };
 
 use common::graphic::RgbColor;
-use once_cell::sync::Lazy;
+use spin::{Mutex, MutexGuard};
 
 use crate::error::Result;
 
-use super::{font::FONT, framebuffer};
+use super::{font, framebuffer};
 
 const ROWS: usize = 25;
 const COLUMNS: usize = 80;
 
-pub static mut CONSOLE: Lazy<Option<Console>> = Lazy::new(|| None);
+pub static mut CONSOLE: Mutex<Option<Console>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsoleError {
     UninitializedError,
+    ConsoleLockError,
 }
 
 pub struct Console {
@@ -52,8 +53,8 @@ impl Console {
             self.cursor_row += 1;
             return;
         } else {
-            for y in 0..ROWS * FONT.height {
-                for x in 0..COLUMNS * FONT.width {
+            for y in 0..ROWS * font::CHARACTER_HEIGHT {
+                for x in 0..COLUMNS * font::CHARACTER_WIDTH {
                     framebuffer::write_pixel(x, y, self.bg_color.into());
                 }
             }
@@ -73,7 +74,7 @@ impl Console {
                 }
 
                 let s = str::from_utf8(&s_buf[..pos]).expect("utf-8 decode error");
-                framebuffer::write_string(0, row * FONT.height, s, self.fg_color);
+                framebuffer::write_string(0, row * font::CHARACTER_HEIGHT, s, self.fg_color);
             }
 
             *self.buffer.last_mut().expect("console buffer is empty") = ['\x00'; COLUMNS];
@@ -86,8 +87,8 @@ impl Console {
                 self.new_line();
             } else if self.cursor_column < COLUMNS - 1 {
                 framebuffer::write_char(
-                    FONT.width * self.cursor_column,
-                    FONT.height * self.cursor_row,
+                    font::CHARACTER_WIDTH * self.cursor_column,
+                    font::CHARACTER_HEIGHT * self.cursor_row,
                     c,
                     self.fg_color,
                 );
@@ -103,49 +104,53 @@ impl Console {
     }
 }
 
-pub fn init(bg: RgbColor, fg: RgbColor) {
-    unsafe {
-        CONSOLE.replace(Console::new(bg, fg));
+fn lock_console<'a>() -> Result<MutexGuard<'a, Option<Console>>> {
+    match unsafe { CONSOLE.try_lock() } {
+        Some(lock) => Ok(lock),
+        None => Err(ConsoleError::ConsoleLockError.into()),
     }
-}
-
-macro_rules! call_console_method {
-    ($method:ident, $arg:expr) => {
-        unsafe {
-            self::CONSOLE
-                .as_mut()
-                .ok_or(ConsoleError::UninitializedError)?
-                .$method($arg);
-        }
-    };
-}
-
-pub fn print(s: &str) -> Result<()> {
-    call_console_method!(print, s);
-    Ok(())
-}
-
-pub fn println(s: &str) -> Result<()> {
-    call_console_method!(println, s);
-    Ok(())
 }
 
 #[macro_export]
 macro_rules! printk {
     ($($arg:tt)*) => {{
-        unsafe {
-            use core::fmt::Write;
-            crate::graphic::console::CONSOLE
-                .as_mut()
-                .ok_or(crate::graphic::console::ConsoleError::UninitializedError)
-                .expect(
-                    "\
-                    Console wasn't initialized. \
-                    As this error caused in printk! macro, \
-                    it isn't impossible to return the error so, \
-                    the kernel panicked.",
-                ).write_fmt(core::format_args!($($arg)*));
-            crate::graphic::console::println("");
-        }
+        use core::fmt::Write;
+        let mut result : crate::error::Result<()> = Ok(());
+        match unsafe { crate::graphic::console::CONSOLE.try_lock() }.as_mut() {
+            Some(lock) => match lock.as_mut() {
+                Some(console) => {
+                    console.write_fmt(core::format_args!($($arg)*));
+                }
+                None => {
+                    result = Err(crate::graphic::console::ConsoleError::UninitializedError.into());
+                }
+            },
+
+            None => result = Err(crate::graphic::console::ConsoleError::ConsoleLockError.into()),
+        };
+        crate::graphic::console::println("");
+
+        result
     }};
+}
+
+pub fn init(bg: RgbColor, fg: RgbColor) -> Result<()> {
+    lock_console()?.replace(Console::new(bg, fg));
+    Ok(())
+}
+
+pub fn print(s: &str) -> Result<()> {
+    lock_console()?
+        .as_mut()
+        .ok_or(ConsoleError::ConsoleLockError)?
+        .print(s);
+    Ok(())
+}
+
+pub fn println(s: &str) -> Result<()> {
+    lock_console()?
+        .as_mut()
+        .ok_or(ConsoleError::ConsoleLockError)?
+        .println(s);
+    Ok(())
 }

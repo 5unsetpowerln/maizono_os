@@ -1,17 +1,18 @@
-use once_cell::sync::Lazy;
-
-use crate::error::Result;
+use crate::{error::Result, printk};
 use common::graphic::{GraphicInfo, Pixel, PixelFormat, RgbColor};
+use spin::{Mutex, MutexGuard};
 
-use super::font::FONT;
+use super::font::{self, CHARACTER_WIDTH, GARBLED_FONT, U8_FONT};
 
-static mut FRAME_BUF: Lazy<Option<FrameBuf>> = Lazy::new(|| None);
+static mut FRAME_BUF: Mutex<Option<FrameBuf>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameBufferError {
     UnsupportedPixelFormatError,
     NotInitializedError,
     OutsideBufferError,
+    FrameBufferLockError,
+    UnsupportedCharacterError,
 }
 
 #[derive(Clone, Debug)]
@@ -94,36 +95,29 @@ impl FrameBuf {
         Ok(())
     }
 
-    fn write_char(&mut self, x: usize, y: usize, c: char, color: RgbColor) -> Result<()> {
-        for (y_offset, row) in FONT
-            .font
-            .get(c as usize)
-            .unwrap_or(&FONT.unprintable)
-            .iter()
-            .enumerate()
-        {
-            for x_offset in 0..FONT.width {
-                if (row >> x_offset) & 1 == 1 {
-                    match self.write_pixel(
-                        x + (super::font::FONT.width - x_offset),
-                        y + y_offset,
-                        color.into(),
-                    ) {
-                        Ok(_) => continue,
-                        Err(err) => return Err(err),
-                    }
+    fn write_char(&mut self, x: usize, y: usize, ascii: char, color: RgbColor) -> Result<()> {
+        let glyph_index = ascii as usize;
+        let glyph = {
+            if glyph_index >= U8_FONT.len() {
+                GARBLED_FONT
+            } else {
+                U8_FONT[glyph_index]
+            }
+        };
+
+        for (dy, row) in glyph.iter().enumerate() {
+            for dx in 0..font::CHARACTER_WIDTH {
+                if (row >> 7 - dx) & 1 == 1 {
+                    self.write_pixel(x + dx, y + dy, color.into());
                 }
             }
         }
         Ok(())
     }
 
-    fn write_string(&mut self, x: usize, y: usize, s: &str, color: RgbColor) -> Result<()> {
-        for (i, c) in s.chars().enumerate() {
-            match self.write_char(x + i * FONT.width, y, c, color) {
-                Ok(_) => continue,
-                Err(err) => return Err(err),
-            }
+    fn write_string(&mut self, x: usize, y: usize, ascii_s: &str, color: RgbColor) -> Result<()> {
+        for (i, c) in ascii_s.chars().enumerate() {
+            self.write_char(x + i * font::CHARACTER_WIDTH * 2, y, c, color)?;
         }
         Ok(())
     }
@@ -170,70 +164,61 @@ fn write_pixel_bgr(self_: &mut FrameBuf, x: usize, y: usize, pixel: Pixel) -> Re
     Ok(())
 }
 
-pub fn init(graphic_info: &GraphicInfo, bg: RgbColor) {
-    unsafe {
-        let mut frame_buf = FrameBuf::new(graphic_info);
-        frame_buf.fill(bg);
-        FRAME_BUF.replace(frame_buf);
-    }
+fn lock_framebuf<'a>() -> Result<MutexGuard<'a, Option<FrameBuf>>> {
+    unsafe { FRAME_BUF.try_lock() }.ok_or(FrameBufferError::FrameBufferLockError.into())
+}
+
+pub fn init(graphic_info: &GraphicInfo, bg: RgbColor) -> Result<()> {
+    let mut frame_buf = FrameBuf::new(graphic_info);
+    frame_buf.fill(bg);
+    lock_framebuf()?.replace(frame_buf);
+    Ok(())
 }
 
 pub fn write_pixel(x: usize, y: usize, pixel: Pixel) -> Result<()> {
-    unsafe {
-        FRAME_BUF
-            .as_mut()
-            .ok_or(FrameBufferError::NotInitializedError)?
-            .write_pixel(x, y, pixel)?;
-    }
+    lock_framebuf()?
+        .as_mut()
+        .ok_or(FrameBufferError::NotInitializedError)?
+        .write_pixel(x, y, pixel)?;
     Ok(())
 }
 
 pub fn write_char(x: usize, y: usize, c: char, color: RgbColor) -> Result<()> {
-    unsafe {
-        FRAME_BUF
-            .as_mut()
-            .ok_or(FrameBufferError::NotInitializedError)?
-            .write_char(x, y, c, color)?;
-    }
+    lock_framebuf()?
+        .as_mut()
+        .ok_or(FrameBufferError::NotInitializedError)?
+        .write_char(x, y, c, color)?;
     Ok(())
 }
 
 pub fn write_string(x: usize, y: usize, s: &str, color: RgbColor) -> Result<()> {
-    unsafe {
-        FRAME_BUF
-            .as_mut()
-            .ok_or(FrameBufferError::NotInitializedError)?
-            .write_string(x, y, s, color)?;
-    }
+    lock_framebuf()?
+        .as_mut()
+        .ok_or(FrameBufferError::NotInitializedError)?
+        .write_string(x, y, s, color)?;
     Ok(())
 }
 
 pub fn fill(color: RgbColor) -> Result<()> {
-    unsafe {
-        FRAME_BUF
-            .as_mut()
-            .ok_or(FrameBufferError::NotInitializedError)?
-            .fill(color)?;
-    }
+    lock_framebuf()?
+        .as_mut()
+        .ok_or(FrameBufferError::NotInitializedError)?
+        .fill(color)?;
     Ok(())
 }
 
 pub fn fill_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColor) -> Result<()> {
-    unsafe {
-        FRAME_BUF
-            .as_mut()
-            .ok_or(FrameBufferError::NotInitializedError)?
-            .fill_rect(x, y, width, height, color)?;
-    }
+    lock_framebuf()?
+        .as_mut()
+        .ok_or(FrameBufferError::NotInitializedError)?
+        .fill_rect(x, y, width, height, color)?;
     Ok(())
 }
 
 pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColor) -> Result<()> {
-    unsafe {
-        FRAME_BUF
-            .as_mut()
-            .ok_or(FrameBufferError::NotInitializedError)?
-            .draw_rect(x, y, width, height, color)?;
-    }
+    lock_framebuf()?
+        .as_mut()
+        .ok_or(FrameBufferError::NotInitializedError)?
+        .draw_rect(x, y, width, height, color)?;
     Ok(())
 }

@@ -38,7 +38,7 @@ pub fn draw_cursor() {
                         CURSOR_SHAPE_STR is {} in height.",
                 CURSOR_HEIGHT,
                 y + 1
-            )
+            );
         }
         for (x, c) in row.chars().enumerate() {
             if x >= CURSOR_WIDTH {
@@ -47,7 +47,7 @@ pub fn draw_cursor() {
                                     CURSOR_SHAPE_STR is {} in width.",
                     CURSOR_WIDTH,
                     x + 1
-                )
+                );
             }
             match c {
                 ' ' => continue,
@@ -61,7 +61,7 @@ pub fn draw_cursor() {
                     printk!(
                         "There is an unexpected character \"{}\" in CURSOR_SHAPE_STR",
                         other
-                    )
+                    );
                 }
             };
         }

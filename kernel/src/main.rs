@@ -26,13 +26,14 @@ pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
             .expect("failed to get framebuffer."),
     );
 
-    // init framebuffer
+    // init framebuffer module
     framebuffer::init(&graphic_info, RgbColor::from(0x28282800));
 
-    // init console
+    // init console module
     console::init(RgbColor::from(0x28282800), RgbColor::from(0xebdbb200));
 
-    framebuffer::draw_rect(100, 100, 100, 100, RgbColor::from(0xcc241d00));
+    // init pci module
+    pci::init();
 
     match pci::scan_all_bus() {
         Ok(_) => {
@@ -44,14 +45,14 @@ pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
                 }
             };
 
-            for (i, device) in devices.enumerate() {
+            for (i, device) in devices.iter().enumerate() {
                 printk!("device {}: {:?}", i, device);
             }
         }
         Err(err) => {
-            printk!("failed to scann all the bus: {:?}", err)
+            printk!("failed to scann all the bus: {:?}", err);
         }
-    }
+    };
 
     loop {
         unsafe { asm!("hlt") }

@@ -1,22 +1,25 @@
 use core::arch::asm;
 
-use common::arrayvec::ArrayVec;
-use once_cell::sync::{Lazy, OnceCell};
+use arrayvec::ArrayVec;
+// use common::arrayvec::ArrayVec;
+use spin::{Mutex, MutexGuard};
 
 use crate::error::Result;
 
-// Address of CONFIG_ADDRESS register in IO Address Space
+/// Address of CONFIG_ADDRESS register in IO Address Space
 const CONFIG_ADDRESS_ADDRESS: u16 = 0x0cf8;
-// Address of CONFIG_DATA register in IO Address Space
+/// Address of CONFIG_DATA register in IO Address Space
 const CONFIG_DATA_ADDRESS: u16 = 0x0cfc;
 
 const DEVICE_CAPACITY: usize = 32;
-static mut DEVICES: Lazy<ArrayVec<Device, DEVICE_CAPACITY>> = Lazy::new(|| ArrayVec::new());
+type Devices = ArrayVec<Device, DEVICE_CAPACITY>;
+static mut DEVICES: Mutex<Option<Devices>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PciError {
     DeviceCapacityError,
     UninitializedError,
+    DeviceLockError,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -38,6 +41,12 @@ impl Device {
     }
 }
 
+pub fn init() -> Result<()> {
+    let devices = ArrayVec::<Device, DEVICE_CAPACITY>::new();
+    lock_devices()?.replace(devices);
+    Ok(())
+}
+
 pub fn scan_all_bus() -> Result<()> {
     let bus0_host_bridge_header_type = read_header_type(0, 0, 0);
     if is_single_function_device(bus0_host_bridge_header_type) {
@@ -54,13 +63,16 @@ pub fn scan_all_bus() -> Result<()> {
     Ok(())
 }
 
+fn lock_devices<'a>() -> Result<MutexGuard<'a, Option<Devices>>> {
+    unsafe { DEVICES.try_lock() }.ok_or(PciError::DeviceLockError.into())
+}
+
 pub fn get_devices() -> Result<ArrayVec<Device, DEVICE_CAPACITY>> {
-    unsafe {
-        let a = &DEVICES.clone();
-        // let a = DEVICES.ok_or(PciError::UninitializedError)?.clone();
-        // let a = DEVICES.clone();
+    if let Some(devices) = lock_devices()?.as_ref() {
+        return Ok(devices.clone());
+    } else {
+        return Err(PciError::UninitializedError.into());
     }
-    todo!()
 }
 
 fn scan_bus(bus: u8) -> Result<()> {
@@ -110,9 +122,11 @@ fn scan_function(bus: u8, device: u8, func: u8) -> Result<()> {
 }
 
 fn add_device(device: &Device) -> Result<()> {
-    match unsafe { DEVICES.push(*device) } {
-        Ok(_) => Ok(()),
-        Err(_) => return Err(PciError::DeviceCapacityError.into()),
+    if let Some(devices) = lock_devices()?.as_mut() {
+        devices.push(device.clone());
+        Ok(())
+    } else {
+        Err(PciError::UninitializedError.into())
     }
 }
 
