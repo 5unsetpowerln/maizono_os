@@ -30,10 +30,13 @@ pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
     framebuffer::init(&graphic_info, RgbColor::from(0x28282800));
 
     // init console module
-    console::init(RgbColor::from(0x28282800), RgbColor::from(0xebdbb200));
+    console::init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200));
 
     // init pci module
     pci::init();
+
+    printk!("framebuffer width: {}", framebuffer::width().unwrap());
+    printk!("framebuffer height: {}", framebuffer::height().unwrap());
 
     match pci::scan_all_bus() {
         Ok(_) => {
@@ -45,8 +48,19 @@ pub fn kernel_main(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
                 }
             };
 
-            for (i, device) in devices.iter().enumerate() {
-                printk!("device {}: {:?}", i, device);
+            let mut xhc_device = None;
+            for device in devices {
+                if device.is_xhc() {
+                    xhc_device.replace(device);
+
+                    if device.is_intel() {
+                        break;
+                    }
+                }
+            }
+
+            if let Some(found_xhc_device) = xhc_device {
+                printk!("found xhc device: {:?}", found_xhc_device);
             }
         }
         Err(err) => {

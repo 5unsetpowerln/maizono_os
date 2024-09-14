@@ -4,7 +4,7 @@ use arrayvec::ArrayVec;
 // use common::arrayvec::ArrayVec;
 use spin::{Mutex, MutexGuard};
 
-use crate::error::Result;
+use crate::{error::Result, printk};
 
 /// Address of CONFIG_ADDRESS register in IO Address Space
 const CONFIG_ADDRESS_ADDRESS: u16 = 0x0cf8;
@@ -28,16 +28,64 @@ pub struct Device {
     device: u8,
     function: u8,
     header_type: u8,
+    class_code: ClassCode,
 }
 
 impl Device {
-    fn new(bus: u8, device: u8, function: u8, header_type: u8) -> Self {
+    fn new(bus: u8, device: u8, function: u8, header_type: u8, class_code: &ClassCode) -> Self {
         Self {
             bus,
             device,
             function,
             header_type,
+            class_code: *class_code,
         }
+    }
+
+    pub fn vendor_id(&self) -> u16 {
+        read_vendor_id(self.bus, self.device, self.function)
+    }
+
+    pub fn is_xhc(&self) -> bool {
+        self.class_code.is_match_all(0x0c, 0x03, 0x30)
+    }
+
+    pub fn is_intel(&self) -> bool {
+        self.vendor_id() == 0x8086
+    }
+
+    // for debug
+    // pub fn read_class_code_raw(&self) -> u32 {
+    //     read_class_code_raw(self.bus, self.device, self.function)
+    // }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ClassCode {
+    base: u8,
+    sub: u8,
+    interface: u8,
+}
+
+impl ClassCode {
+    fn new(base: u8, sub: u8, interface: u8) -> Self {
+        Self {
+            base,
+            sub,
+            interface,
+        }
+    }
+
+    fn is_match_base(&self, b: u8) -> bool {
+        self.base == b
+    }
+
+    fn is_match_base_sub(&self, b: u8, s: u8) -> bool {
+        self.is_match_base(b) && self.sub == s
+    }
+
+    fn is_match_all(&self, b: u8, s: u8, i: u8) -> bool {
+        self.is_match_base_sub(b, s) && self.interface == i
     }
 }
 
@@ -104,14 +152,11 @@ fn scan_device(bus: u8, device: u8) -> Result<()> {
 
 fn scan_function(bus: u8, device: u8, func: u8) -> Result<()> {
     let header_type = read_header_type(bus, device, func);
-
-    add_device(&Device::new(bus, device, func, header_type))?;
-
     let class_code = read_class_code(bus, device, func);
-    let base = (class_code >> 24) & 0xff;
-    let sub = (class_code >> 16) & 0xff;
 
-    if base == 0x06 && sub == 0x04 {
+    add_device(&Device::new(bus, device, func, header_type, &class_code))?;
+
+    if class_code.base == 0x06 && class_code.sub == 0x04 {
         // standard PCI-PCI bridge
         let bus_numbers = read_bus_numbers(bus, device, func);
         let secondary_bus = (bus_numbers >> 8) & 0xff;
@@ -180,9 +225,14 @@ fn read_header_type(bus: u8, device: u8, func: u8) -> u8 {
 }
 
 /// Length of Class Code is 24 bit.
-fn read_class_code(bus: u8, device: u8, func: u8) -> u32 {
+fn read_class_code(bus: u8, device: u8, func: u8) -> ClassCode {
     write_address(make_address(bus, device, func, 0x08));
-    read_data() >> 8
+    let class_code_raw = read_data() >> 8;
+    let base = ((class_code_raw >> 16) & 0xff) as u8;
+    let sub = ((class_code_raw >> 8) & 0xff) as u8;
+    let interface = (class_code_raw & 0xff) as u8;
+
+    ClassCode::new(base, sub, interface)
 }
 
 fn read_bus_numbers(bus: u8, device: u8, func: u8) -> u32 {

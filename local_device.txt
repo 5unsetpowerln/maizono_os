@@ -1,0 +1,7 @@
+Logi Bolt Receiver
+    Bus Number: 001
+    Device Number: 002
+    Vendor ID: 046d
+    Product ID: c548
+
+qemu-system-x86_64 -usb -device usb-mouse,busid=usb-0:1.1 -usbdevice /dev/input/mouse0

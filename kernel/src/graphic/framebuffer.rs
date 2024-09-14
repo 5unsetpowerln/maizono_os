@@ -95,7 +95,7 @@ impl FrameBuf {
         Ok(())
     }
 
-    fn write_char(&mut self, x: usize, y: usize, ascii: char, color: RgbColor) -> Result<()> {
+    fn write_char(&mut self, x: usize, y: usize, ascii: char, fg: RgbColor) -> Result<()> {
         let glyph_index = ascii as usize;
         let glyph = {
             if glyph_index >= U8_FONT.len() {
@@ -108,16 +108,16 @@ impl FrameBuf {
         for (dy, row) in glyph.iter().enumerate() {
             for dx in 0..font::CHARACTER_WIDTH {
                 if (row >> 7 - dx) & 1 == 1 {
-                    self.write_pixel(x + dx, y + dy, color.into());
+                    self.write_pixel(x + dx, y + dy, fg.into());
                 }
             }
         }
         Ok(())
     }
 
-    fn write_string(&mut self, x: usize, y: usize, ascii_s: &str, color: RgbColor) -> Result<()> {
+    fn write_string(&mut self, x: usize, y: usize, ascii_s: &str, fg: RgbColor) -> Result<()> {
         for (i, c) in ascii_s.chars().enumerate() {
-            self.write_char(x + i * font::CHARACTER_WIDTH * 2, y, c, color)?;
+            self.write_char(x + i * font::CHARACTER_WIDTH * 2, y, c, fg)?;
         }
         Ok(())
     }
@@ -183,19 +183,19 @@ pub fn write_pixel(x: usize, y: usize, pixel: Pixel) -> Result<()> {
     Ok(())
 }
 
-pub fn write_char(x: usize, y: usize, c: char, color: RgbColor) -> Result<()> {
+pub fn write_char(x: usize, y: usize, c: char, fg: RgbColor) -> Result<()> {
     lock_framebuf()?
         .as_mut()
         .ok_or(FrameBufferError::NotInitializedError)?
-        .write_char(x, y, c, color)?;
+        .write_char(x, y, c, fg)?;
     Ok(())
 }
 
-pub fn write_string(x: usize, y: usize, s: &str, color: RgbColor) -> Result<()> {
+pub fn write_string(x: usize, y: usize, s: &str, fg: RgbColor) -> Result<()> {
     lock_framebuf()?
         .as_mut()
         .ok_or(FrameBufferError::NotInitializedError)?
-        .write_string(x, y, s, color)?;
+        .write_string(x, y, s, fg)?;
     Ok(())
 }
 
@@ -221,4 +221,18 @@ pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColo
         .ok_or(FrameBufferError::NotInitializedError)?
         .draw_rect(x, y, width, height, color)?;
     Ok(())
+}
+
+pub fn width() -> Result<usize> {
+    Ok(lock_framebuf()?
+        .as_mut()
+        .ok_or(FrameBufferError::NotInitializedError)?
+        .get_width())
+}
+
+pub fn height() -> Result<usize> {
+    Ok(lock_framebuf()?
+        .as_mut()
+        .ok_or(FrameBufferError::NotInitializedError)?
+        .get_height())
 }

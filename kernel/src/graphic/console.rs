@@ -8,10 +8,13 @@ use spin::{Mutex, MutexGuard};
 
 use crate::error::Result;
 
-use super::{font, framebuffer};
+use super::{
+    font::{self, CHARACTER_HEIGHT, CHARACTER_WIDTH},
+    framebuffer,
+};
 
 const ROWS: usize = 25;
-const COLUMNS: usize = 80;
+const COLUMNS: usize = 150;
 
 pub static mut CONSOLE: Mutex<Option<Console>> = Mutex::new(None);
 
@@ -38,6 +41,13 @@ impl fmt::Write for Console {
 
 impl Console {
     fn new(bg_color: RgbColor, fg_color: RgbColor) -> Self {
+        framebuffer::fill_rect(
+            0,
+            0,
+            COLUMNS * CHARACTER_WIDTH,
+            ROWS * CHARACTER_HEIGHT,
+            bg_color,
+        );
         Self {
             buffer: [['\x00'; COLUMNS]; ROWS],
             bg_color,
