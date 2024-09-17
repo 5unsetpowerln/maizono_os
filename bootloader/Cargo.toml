@@ -1,0 +1,8 @@
+[package]
+name = "bootloader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+uefi = "0.32.0"
+log = "0.4.22"

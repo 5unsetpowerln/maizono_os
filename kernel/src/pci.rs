@@ -20,30 +20,31 @@ pub enum PciError {
     DeviceCapacityError,
     UninitializedError,
     DeviceLockError,
+    BaseAddressRegisterIndexOutOfRangeError,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Device {
     bus: u8,
     device: u8,
-    function: u8,
+    func: u8,
     header_type: u8,
     class_code: ClassCode,
 }
 
 impl Device {
-    fn new(bus: u8, device: u8, function: u8, header_type: u8, class_code: &ClassCode) -> Self {
+    fn new(bus: u8, device: u8, func: u8, header_type: u8, class_code: &ClassCode) -> Self {
         Self {
             bus,
             device,
-            function,
+            func,
             header_type,
             class_code: *class_code,
         }
     }
 
     pub fn vendor_id(&self) -> u16 {
-        read_vendor_id(self.bus, self.device, self.function)
+        read_vendor_id(self.bus, self.device, self.func)
     }
 
     pub fn is_xhc(&self) -> bool {
@@ -54,11 +55,44 @@ impl Device {
         self.vendor_id() == 0x8086
     }
 
-    // for debug
-    // pub fn read_class_code_raw(&self) -> u32 {
-    //     read_class_code_raw(self.bus, self.device, self.function)
-    // }
+    fn read_pci_config_space(&self, offset_in_pci_config_space: u8) -> u32 {
+        make_address(self.bus, self.device, self.func, offset_in_pci_config_space);
+        read_data()
+    }
+
+    pub fn read_base_addr(&self, index: usize) -> Result<u64> {
+        if index >= 6 {
+            return Err(PciError::BaseAddressRegisterIndexOutOfRangeError.into());
+        }
+
+        let offset_in_pci_config_space = (0x10 + 4 * index) as u8;
+        let lower_base_addr = self.read_pci_config_space(offset_in_pci_config_space);
+
+        // According to following reference, 1 and 2 bit in a base address register is flag about type.
+        // If 2 bit is enabled, stored address is 64bit.
+        // PCI Local Bus Specification Revision 3.0 (https://lekensteyn.nl/files/docs/PCI_SPEV_V3_0.pdf)
+
+        // if address is 32bit
+        if (lower_base_addr & 4) == 0 {
+            return Ok(lower_base_addr as u64);
+        }
+
+        // if address is 64bit
+        if (index >= 5) {
+            return Err(PciError::BaseAddressRegisterIndexOutOfRangeError.into());
+        }
+        let upper_base_addr = self.read_pci_config_space(offset_in_pci_config_space + 4) as u64;
+
+        Ok(upper_base_addr << 32 | lower_base_addr as u64)
+    }
 }
+
+// fn read_config_register
+
+// index can be 0 ~ 5
+// fn calc_base_addr_register_address(index: usize) -> u8 {
+//     (0x10 + 4 * index) as u8
+// }
 
 #[derive(Clone, Copy, Debug)]
 pub struct ClassCode {
@@ -180,14 +214,14 @@ fn is_single_function_device(header_type: u8) -> bool {
 }
 
 // generates 32bit address for CONFIG_ADDRESS Register
-fn make_address(bus: u8, device: u8, func: u8, register_addr: u8) -> u32 {
+fn make_address(bus: u8, device: u8, func: u8, offset_in_pci_config_space: u8) -> u32 {
     // bit left
     let shl = |x: u32, bits: usize| return x << bits;
     shl(1, 31) // Bit to enable transporting CONFIG_DATA io to PCI Configuration Space (1bit)
         | shl(bus as u32, 16) // Bus number (8bit)
         | shl(device as u32, 11) // Device number (5 bit)
         | shl(func as u32, 8) // Function number (3 bit)
-        | (register_addr as u32 & 0xfc) // Register offset (8bit) (2bit aligned)
+        | (offset_in_pci_config_space as u32 & 0xfc) // Register offset (8bit) (2bit aligned)
 }
 
 /// writes an address of PCI Configuration Space to CONFIG_ADDRESS register to read/write it via CONFIG_DATA register.

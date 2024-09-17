@@ -1,0 +1,113 @@
+[env]
+# used as directory of crate and program name
+BOOTLOADER = "bootloader"
+KERNEL = "kernel"
+# optional
+BUILD = "build"
+
+MOUNT_POINT_NAME = "mnt"
+DISK_IMAGE_NAME = "boot.img"
+OVMF_FILE_NAME = "OVMF-pure-efi.fd"
+
+# create disk imagen:
+[tasks.create_image]
+description = "Create a FAT32 disk image"
+script = ["qemu-img create -f raw ${BUILD}/${DISK_IMAGE_NAME} 200M"]
+
+[tasks.format_image]
+description = "Format the disk image as FAT32"
+script = ["mkfs.vfat ${BUILD}/${DISK_IMAGE_NAME}"]
+
+[tasks.mount_image]
+description = "Mount the disk image"
+script = [
+    "rm -rf ${BUILD}/${MOUNT_POINT_NAME}",
+    "mkdir -p ${BUILD}/${MOUNT_POINT_NAME}",
+    "sudo mount -o loop ${BUILD}/${DISK_IMAGE_NAME} ${BUILD}/${MOUNT_POINT_NAME}",
+]
+
+[tasks.copy_efi]
+description = "Copy the bootloader EFI file to the disk image"
+script = [
+    "sudo mkdir -p ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT",
+    "sudo cp ${BUILD}/${BOOTLOADER}.efi ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT/BOOTX64.EFI",
+]
+
+[tasks.umount_image]
+description = "Unmount the disk image"
+command = "sudo"
+args = ["umount", "${BUILD}/${MOUNT_POINT_NAME}"]
+
+[tasks.create_bootable_image]
+dependencies = [
+    "create_image",
+    "format_image",
+    "mount_image",
+    "copy_efi",
+    "umount_image",
+]
+# create disk imagen^
+
+[tasks.run_qemu]
+description = "Run QEMU with the disk image and UEFI firmware"
+command = "qemu-system-x86_64"
+args = [
+    "-enable-kvm",
+
+    "-m",
+    "1G",
+
+    "-bios",
+    "${BUILD}/${OVMF_FILE_NAME}",
+
+    "-drive",
+    "format=raw,file=${BUILD}/${DISK_IMAGE_NAME}",
+
+    "--device",
+    "qemu-xhci,id=xhci",
+    "--device",
+    "usb-mouse",
+    "--device",
+    "usb-kbd",
+    "--device",
+    "usb-tablet",
+
+    "--monitor",
+    "stdio",
+]
+
+[tasks.ignore-members]
+workspace = false
+
+[tasks.build]
+disabled = true
+
+[tasks.pre_build]
+script = ["rm -rf ${BUILD}", "mkdir ${BUILD}", "cp ${OVMF_FILE_NAME} ${BUILD}"]
+
+[tasks.build_and_copy_bootloader_debug]
+script = [
+    "cd ${BOOTLOADER}",
+    "cargo build --target x86_64-unknown-uefi",
+    "cd ..",
+    "cp ./${BOOTLOADER}/target/x86_64-unknown-uefi/debug/${BOOTLOADER}.efi ${BUILD}/${BOOTLOADER}.efi",
+]
+
+[tasks.build_kernel_debug]
+script = [
+    "cd ${KERNEL}",
+    "cargo build --target x86_64-unknown-none",
+    "cd ..",
+    "cp ./${KERNEL}/target/x86_64-unknown-none/debug/${KERNEL} ${BUILD}/${KERNEL}.elf",
+]
+
+[tasks.build_debug]
+dependencies = [
+    "pre_build",
+    "build_and_copy_bootloader_debug",
+    "build_kernel_debug",
+    "create_bootable_image",
+]
+
+[tasks.run_debug]
+dependencies = ["build_debug", "run_qemu"]
