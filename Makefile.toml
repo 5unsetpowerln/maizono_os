@@ -1,8 +1,7 @@
 [env]
 # used as directory of crate and program name
-BOOTLOADER = "bootloader"
-KERNEL = "kernel"
-# optional
+BOOTLOADER_NAME = "bootloader"
+KERNEL_NAME = "kernel"
 BUILD = "build"
 
 MOUNT_POINT_NAME = "mnt"
@@ -30,8 +29,12 @@ script = [
 description = "Copy the bootloader EFI file to the disk image"
 script = [
     "sudo mkdir -p ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT",
-    "sudo cp ${BUILD}/${BOOTLOADER}.efi ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT/BOOTX64.EFI",
+    "sudo cp ${BUILD}/${BOOTLOADER_NAME}.efi ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT/BOOTX64.EFI",
 ]
+
+[tasks.copy_kernel]
+description = "Copy the kernel ELF file to the disk image"
+script = ["sudo cp ${BUILD}/${KERNEL_NAME}.elf ${BUILD}/${MOUNT_POINT_NAME}"]
 
 [tasks.umount_image]
 description = "Unmount the disk image"
@@ -44,6 +47,7 @@ dependencies = [
     "format_image",
     "mount_image",
     "copy_efi",
+    "copy_kernel",
     "umount_image",
 ]
 # create disk imagen^
@@ -87,18 +91,18 @@ script = ["rm -rf ${BUILD}", "mkdir ${BUILD}", "cp ${OVMF_FILE_NAME} ${BUILD}"]
 
 [tasks.build_and_copy_bootloader_debug]
 script = [
-    "cd ${BOOTLOADER}",
+    "cd ${BOOTLOADER_NAME}",
     "cargo build --target x86_64-unknown-uefi",
     "cd ..",
-    "cp ./${BOOTLOADER}/target/x86_64-unknown-uefi/debug/${BOOTLOADER}.efi ${BUILD}/${BOOTLOADER}.efi",
+    "cp ./${BOOTLOADER_NAME}/target/x86_64-unknown-uefi/debug/${BOOTLOADER_NAME}.efi ${BUILD}/${BOOTLOADER_NAME}.efi",
 ]
 
 [tasks.build_kernel_debug]
 script = [
-    "cd ${KERNEL}",
+    "cd ${KERNEL_NAME}",
     "cargo build --target x86_64-unknown-none",
     "cd ..",
-    "cp ./${KERNEL}/target/x86_64-unknown-none/debug/${KERNEL} ${BUILD}/${KERNEL}.elf",
+    "cp ./${KERNEL_NAME}/target/x86_64-unknown-none/debug/${KERNEL_NAME} ${BUILD}/${KERNEL_NAME}.elf",
 ]
 
 [tasks.build_debug]

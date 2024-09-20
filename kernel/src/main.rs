@@ -17,8 +17,8 @@ use graphic::{
 };
 
 /// kernel entrypoint
-// #[no_mangle]
 // pub extern "C" fn _start(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
+#[no_mangle]
 pub extern "C" fn _start() -> ! {
     // // generate maizono's informations from bootloader_api's informations.
     // let graphic_info = common::graphic::GraphicInfo::from(
