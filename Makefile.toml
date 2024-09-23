@@ -8,55 +8,39 @@ MOUNT_POINT_NAME = "mnt"
 DISK_IMAGE_NAME = "boot.img"
 OVMF_FILE_NAME = "OVMF-pure-efi.fd"
 
-# create disk imagen:
-[tasks.create_image]
-description = "Create a FAT32 disk image"
-script = ["qemu-img create -f raw ${BUILD}/${DISK_IMAGE_NAME} 200M"]
+[tasks.ignore-members]
+workspace = false
 
-[tasks.format_image]
-description = "Format the disk image as FAT32"
-script = ["mkfs.vfat ${BUILD}/${DISK_IMAGE_NAME}"]
+[tasks.build]
+disabled = true
 
-[tasks.mount_image]
-description = "Mount the disk image"
+#
+# create image
+#
+[tasks.make_image]
+description = "Make a disk image"
 script = [
-    "rm -rf ${BUILD}/${MOUNT_POINT_NAME}",
+    "qemu-img create -f raw ${BUILD}/${DISK_IMAGE_NAME} 200M",
+    "mkfs.fat -n 'MAIZONO' -s 2 -f 2 -R 32 -F 32 ${BUILD}/${DISK_IMAGE_NAME}",
     "mkdir -p ${BUILD}/${MOUNT_POINT_NAME}",
     "sudo mount -o loop ${BUILD}/${DISK_IMAGE_NAME} ${BUILD}/${MOUNT_POINT_NAME}",
-]
-
-[tasks.copy_efi]
-description = "Copy the bootloader EFI file to the disk image"
-script = [
     "sudo mkdir -p ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT",
     "sudo cp ${BUILD}/${BOOTLOADER_NAME}.efi ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT/BOOTX64.EFI",
+    "sudo cp ${BUILD}/${KERNEL_NAME}.elf ${BUILD}/${MOUNT_POINT_NAME}/${KERNEL_NAME}.elf",
+    "sudo umount ${BUILD}/${MOUNT_POINT_NAME}",
 ]
 
-[tasks.copy_kernel]
-description = "Copy the kernel ELF file to the disk image"
-script = ["sudo cp ${BUILD}/${KERNEL_NAME}.elf ${BUILD}/${MOUNT_POINT_NAME}"]
-
-[tasks.umount_image]
-description = "Unmount the disk image"
-command = "sudo"
-args = ["umount", "${BUILD}/${MOUNT_POINT_NAME}"]
-
-[tasks.create_bootable_image]
-dependencies = [
-    "create_image",
-    "format_image",
-    "mount_image",
-    "copy_efi",
-    "copy_kernel",
-    "umount_image",
-]
-# create disk imagen^
-
+#
+# run qemu
+#
 [tasks.run_qemu]
 description = "Run QEMU with the disk image and UEFI firmware"
 command = "qemu-system-x86_64"
 args = [
-    "-enable-kvm",
+    # "-enable-kvm",
+
+    # "-smp",
+    # "4",
 
     "-m",
     "1G",
@@ -69,27 +53,28 @@ args = [
 
     "--device",
     "qemu-xhci,id=xhci",
+
     "--device",
     "usb-mouse",
+
     "--device",
     "usb-kbd",
+
     "--device",
     "usb-tablet",
 
     "--monitor",
     "stdio",
+
+    # "-s",
+    # "-S",
 ]
-
-[tasks.ignore-members]
-workspace = false
-
-[tasks.build]
-disabled = true
 
 [tasks.pre_build]
 script = ["rm -rf ${BUILD}", "mkdir ${BUILD}", "cp ${OVMF_FILE_NAME} ${BUILD}"]
 
-[tasks.build_and_copy_bootloader_debug]
+[tasks.build_bootloader_debug]
+description = "Build the bootloader and copy it to the build directory."
 script = [
     "cd ${BOOTLOADER_NAME}",
     "cargo build --target x86_64-unknown-uefi",
@@ -98,6 +83,7 @@ script = [
 ]
 
 [tasks.build_kernel_debug]
+description = "Build the kernel and copy it to the build directory."
 script = [
     "cd ${KERNEL_NAME}",
     "cargo build --target x86_64-unknown-none",
@@ -106,11 +92,12 @@ script = [
 ]
 
 [tasks.build_debug]
+description = "Create a bootable image for debug."
 dependencies = [
     "pre_build",
-    "build_and_copy_bootloader_debug",
+    "build_bootloader_debug",
     "build_kernel_debug",
-    "create_bootable_image",
+    "make_image",
 ]
 
 [tasks.run_debug]

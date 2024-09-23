@@ -4,8 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-uefi = { version = "0.32.0", features = ["global_allocator"] }
+uefi = { version = "0.32.0", features = [
+    "alloc",
+    "global_allocator",
+    # "panic_handler",
+    "logger",
+    "qemu",
+] }
 log = "0.4.22"
 spin = "0.9.8"
 anyhow = { version = "1.0.89", default-features = false }
-# anyhow = { version = "1.0" }
+goblin = { version = "0.8.2", default-features = false, features = [
+    "elf64",
+    "elf32",
+    "endian_fd",
+] }
+common = { path = "../common" }

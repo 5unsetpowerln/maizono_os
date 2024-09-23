@@ -35,8 +35,8 @@ impl FrameBuf {
             bytes_per_pixel: graphic_info.bytes_per_pixel,
             stride: graphic_info.stride,
             pixel_format: graphic_info.pixel_format,
-            framebuf_addr: graphic_info.framebuf_addr,
-            framebuf_size: graphic_info.framebuf_size,
+            framebuf_addr: graphic_info.frame_buffer_addr,
+            framebuf_size: graphic_info.size,
             write_pixel: match graphic_info.pixel_format {
                 PixelFormat::Rgb => write_pixel_rgb,
                 PixelFormat::Bgr => write_pixel_bgr,

@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 bootloader_api = "0.11.7"
+uefi = { version = "0.32.0", features = ["global_allocator"] }

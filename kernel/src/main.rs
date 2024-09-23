@@ -10,7 +10,7 @@ mod pci;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use common::graphic::RgbColor;
+use common::{boot::BootInfo, graphic::RgbColor};
 use graphic::{
     console,
     framebuffer::{self},
@@ -19,17 +19,10 @@ use graphic::{
 /// kernel entrypoint
 // pub extern "C" fn _start(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
 #[no_mangle]
-pub extern "C" fn _start() -> ! {
-    // // generate maizono's informations from bootloader_api's informations.
-    // let graphic_info = common::graphic::GraphicInfo::from(
-    //     boot_info
-    //         .framebuffer
-    //         .take()
-    //         .expect("failed to get framebuffer."),
-    // );
-
-    // // init framebuffer module
-    // framebuffer::init(&graphic_info, RgbColor::from(0x28282800));
+#[export_name = "_start"]
+pub extern "C" fn _start(boot_info: BootInfo) -> ! {
+    // init framebuffer module
+    framebuffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800));
 
     // // init console module
     // console::init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200));
