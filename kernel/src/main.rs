@@ -20,7 +20,7 @@ use graphic::{
 // pub extern "C" fn _start(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
 #[no_mangle]
 #[export_name = "_start"]
-pub extern "C" fn _start(boot_info: BootInfo) -> ! {
+pub extern "C" fn _start(boot_info: &BootInfo) -> ! {
     // init framebuffer module
     framebuffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800));
 

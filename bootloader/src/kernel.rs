@@ -14,7 +14,8 @@ use uefi::{
 use crate::{file_info_size, open_root_dir};
 
 const KERNEL_FILE_NAME: &CStr16 = cstr16!("kernel.elf");
-const KERNEL_BASE_ADDR: u64 = 0x3e292000;
+// const KERNEL_BASE_ADDR: u64 = 0x3e292000;
+const KERNEL_BASE_ADDR: u64 = 0x10000000;
 const UEFI_PAGE_SIZE: usize = 0x1000;
 
 pub fn load_kernel() -> Result<Kernel> {
@@ -96,7 +97,7 @@ fn copy_load_segment(src: &[u8], base_addr: u64, elf: &elf::Elf) -> Result<()> {
     {
         header
     } else {
-        bail!(anyhow!("the elf file doesn't have any LOAD headers."));
+        bail!(anyhow!("The elf file doesn't have any LOAD headers."));
     }
     .p_vaddr;
 

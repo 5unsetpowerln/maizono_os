@@ -179,13 +179,12 @@ fn main_inner() -> Status {
     info!("kernel_base_addr: 0x{:X}", kernel.base_addr());
     // info!("rip: {}", get_rip());
 
-    // info!("exiting boot services.");
-    // let _ = unsafe {
-    //     let _ = boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA);
-    // };
+    info!("exiting boot services.");
+    let _ = unsafe {
+        let _ = boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA);
+    };
 
-    // kernel.run(boot_info);
-    // Status::SUCCESS
+    kernel.run(&boot_info);
 
     loop {
         unsafe {

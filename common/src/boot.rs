@@ -13,7 +13,7 @@ impl BootInfo {
 pub struct Kernel {
     base_addr: u64,
     entry_point_addr: u64,
-    entry_point: fn(BootInfo) -> !,
+    entry_point: fn(&BootInfo) -> !,
 }
 
 impl Kernel {
@@ -25,7 +25,7 @@ impl Kernel {
         }
     }
 
-    pub fn run(self, boot_info: BootInfo) -> ! {
+    pub fn run(self, boot_info: &BootInfo) -> ! {
         (self.entry_point)(boot_info)
     }
 

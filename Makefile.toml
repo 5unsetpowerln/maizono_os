@@ -66,8 +66,8 @@ args = [
     "--monitor",
     "stdio",
 
-    # "-s",
-    # "-S",
+    "-s",
+    "-S",
 ]
 
 [tasks.pre_build]
