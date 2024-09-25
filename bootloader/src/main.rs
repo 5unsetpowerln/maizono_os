@@ -164,8 +164,7 @@ fn main_inner() -> Status {
                 panic!("panicked");
             }
         };
-
-    let boot_info = BootInfo::new(graphic_info);
+    info!("frame_buffer_addr: 0x{:X}", graphic_info.frame_buffer_addr);
 
     info!("loading kernel");
     let kernel = match load_kernel() {
@@ -177,13 +176,11 @@ fn main_inner() -> Status {
     };
     info!("kernel_entry_point: 0x{:X}", kernel.entry_point_addr());
     info!("kernel_base_addr: 0x{:X}", kernel.base_addr());
-    // info!("rip: {}", get_rip());
 
     info!("exiting boot services.");
-    let _ = unsafe {
-        let _ = boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA);
-    };
+    let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA) };
 
+    let boot_info = BootInfo::new(graphic_info, memory_map);
     kernel.run(&boot_info);
 
     loop {

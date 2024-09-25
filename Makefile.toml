@@ -2,6 +2,7 @@
 # used as directory of crate and program name
 BOOTLOADER_NAME = "bootloader"
 KERNEL_NAME = "kernel"
+KERNEL_BUILD_TARGET_NAME = "x86_64-kernel"
 BUILD = "build"
 
 MOUNT_POINT_NAME = "mnt"
@@ -37,7 +38,7 @@ script = [
 description = "Run QEMU with the disk image and UEFI firmware"
 command = "qemu-system-x86_64"
 args = [
-    # "-enable-kvm",
+    "-enable-kvm",
 
     # "-smp",
     # "4",
@@ -66,8 +67,8 @@ args = [
     "--monitor",
     "stdio",
 
-    "-s",
-    "-S",
+    # "-s",
+    # "-S",
 ]
 
 [tasks.pre_build]
@@ -86,9 +87,10 @@ script = [
 description = "Build the kernel and copy it to the build directory."
 script = [
     "cd ${KERNEL_NAME}",
-    "cargo build --target x86_64-unknown-none",
+    # "cargo build --target x86_64-unknown-none",
+    "cargo build",
     "cd ..",
-    "cp ./${KERNEL_NAME}/target/x86_64-unknown-none/debug/${KERNEL_NAME} ${BUILD}/${KERNEL_NAME}.elf",
+    "cp ./${KERNEL_NAME}/target/${KERNEL_BUILD_TARGET_NAME}/debug/${KERNEL_NAME}.elf ${BUILD}/${KERNEL_NAME}.elf",
 ]
 
 [tasks.build_debug]

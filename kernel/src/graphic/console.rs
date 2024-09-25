@@ -10,7 +10,7 @@ use crate::error::Result;
 
 use super::{
     font::{self, CHARACTER_HEIGHT, CHARACTER_WIDTH},
-    framebuffer,
+    frame_buffer,
 };
 
 const ROWS: usize = 25;
@@ -41,7 +41,7 @@ impl fmt::Write for Console {
 
 impl Console {
     fn new(bg_color: RgbColor, fg_color: RgbColor) -> Self {
-        framebuffer::fill_rect(
+        frame_buffer::fill_rect(
             0,
             0,
             COLUMNS * CHARACTER_WIDTH,
@@ -65,7 +65,7 @@ impl Console {
         } else {
             for y in 0..ROWS * font::CHARACTER_HEIGHT {
                 for x in 0..COLUMNS * font::CHARACTER_WIDTH {
-                    framebuffer::write_pixel(x, y, self.bg_color.into());
+                    frame_buffer::write_pixel(x, y, self.bg_color.into());
                 }
             }
 
@@ -84,7 +84,7 @@ impl Console {
                 }
 
                 let s = str::from_utf8(&s_buf[..pos]).expect("utf-8 decode error");
-                framebuffer::write_string(0, row * font::CHARACTER_HEIGHT, s, self.fg_color);
+                frame_buffer::write_string(0, row * font::CHARACTER_HEIGHT, s, self.fg_color);
             }
 
             *self.buffer.last_mut().expect("console buffer is empty") = ['\x00'; COLUMNS];
@@ -96,7 +96,7 @@ impl Console {
             if c == '\n' {
                 self.new_line();
             } else if self.cursor_column < COLUMNS - 1 {
-                framebuffer::write_char(
+                frame_buffer::write_char(
                     font::CHARACTER_WIDTH * self.cursor_column,
                     font::CHARACTER_HEIGHT * self.cursor_row,
                     c,
@@ -125,22 +125,18 @@ fn lock_console<'a>() -> Result<MutexGuard<'a, Option<Console>>> {
 macro_rules! printk {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        let mut result : crate::error::Result<()> = Ok(());
+        crate::graphic::console::println("").unwrap();
         match unsafe { crate::graphic::console::CONSOLE.try_lock() }.as_mut() {
             Some(lock) => match lock.as_mut() {
                 Some(console) => {
-                    console.write_fmt(core::format_args!($($arg)*));
+                    console.write_fmt(core::format_args!($($arg)*)).unwrap();
                 }
                 None => {
-                    result = Err(crate::graphic::console::ConsoleError::UninitializedError.into());
+                    panic!();
                 }
             },
-
-            None => result = Err(crate::graphic::console::ConsoleError::ConsoleLockError.into()),
+            None => panic!(),
         };
-        crate::graphic::console::println("");
-
-        result
     }};
 }
 

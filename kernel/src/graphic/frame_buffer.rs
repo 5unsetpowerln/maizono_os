@@ -85,12 +85,12 @@ impl FrameBuf {
         color: RgbColor,
     ) -> Result<()> {
         for x_inner in x..x + width {
-            self.write_pixel(x_inner, y, color.into());
-            self.write_pixel(x_inner, y + height - 1, color.into());
+            self.write_pixel(x_inner, y, color.into())?;
+            self.write_pixel(x_inner, y + height - 1, color.into())?;
         }
         for y_inner in y..y + height {
-            self.write_pixel(x, y_inner, color.into());
-            self.write_pixel(x + width - 1, y_inner, color.into());
+            self.write_pixel(x, y_inner, color.into())?;
+            self.write_pixel(x + width - 1, y_inner, color.into())?;
         }
         Ok(())
     }
@@ -108,7 +108,7 @@ impl FrameBuf {
         for (dy, row) in glyph.iter().enumerate() {
             for dx in 0..font::CHARACTER_WIDTH {
                 if (row >> 7 - dx) & 1 == 1 {
-                    self.write_pixel(x + dx, y + dy, fg.into());
+                    self.write_pixel(x + dx, y + dy, fg.into())?;
                 }
             }
         }
@@ -140,27 +140,26 @@ fn write_pixel_rgb(self_: &mut FrameBuf, x: usize, y: usize, pixel: Pixel) -> Re
         return Err(FrameBufferError::OutsideBufferError.into());
     }
     let offset = (y * self_.width + x) * self_.bytes_per_pixel;
-
     let pixel_ref = (self_.framebuf_addr + offset as u64) as *mut u32;
+
     unsafe {
         *pixel_ref = pixel.le();
     };
     Ok(())
 }
 
-fn write_pixel_bgr(self_: &mut FrameBuf, x: usize, y: usize, pixel: Pixel) -> Result<()> {
+fn write_pixel_bgr(self_: &mut FrameBuf, x: usize, y: usize, mut pixel: Pixel) -> Result<()> {
     if !self_.is_inside_buffer(x, y) {
         return Err(FrameBufferError::OutsideBufferError.into());
     }
+
     let offset = (y * self_.width + x) * self_.bytes_per_pixel;
     let pixel_ref = (self_.framebuf_addr + offset as u64) as *mut u32;
-    let mut pixel = pixel;
     pixel.bgr();
 
     unsafe {
         *pixel_ref = pixel.le();
     };
-    // }
     Ok(())
 }
 
@@ -170,7 +169,7 @@ fn lock_framebuf<'a>() -> Result<MutexGuard<'a, Option<FrameBuf>>> {
 
 pub fn init(graphic_info: &GraphicInfo, bg: RgbColor) -> Result<()> {
     let mut frame_buf = FrameBuf::new(graphic_info);
-    frame_buf.fill(bg);
+    frame_buf.fill(bg)?;
     lock_framebuf()?.replace(frame_buf);
     Ok(())
 }

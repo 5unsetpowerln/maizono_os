@@ -2,7 +2,7 @@ use common::graphic::RgbColor;
 
 use crate::printk;
 
-use super::framebuffer;
+use super::frame_buffer;
 
 pub const CURSOR_WIDTH: usize = 15;
 pub const CURSOR_HEIGHT: usize = 15;
@@ -52,10 +52,10 @@ pub fn draw_cursor() {
             match c {
                 ' ' => continue,
                 '.' => {
-                    framebuffer::write_pixel(x, y, RgbColor::from(0x689d6a00).into());
+                    frame_buffer::write_pixel(x, y, RgbColor::from(0x689d6a00).into());
                 }
                 '@' => {
-                    framebuffer::write_pixel(x, y, RgbColor::from(0xfbf1c700).into());
+                    frame_buffer::write_pixel(x, y, RgbColor::from(0xfbf1c700).into());
                 }
                 other => {
                     printk!(

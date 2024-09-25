@@ -1,5 +1,5 @@
 use crate::{
-    graphic::{console::ConsoleError, framebuffer::FrameBufferError, mouse::MouseError},
+    graphic::{console::ConsoleError, frame_buffer::FrameBufferError, mouse::MouseError},
     pci::PciError,
 };
 

@@ -1,19 +1,25 @@
+use uefi::mem::memory_map::MemoryMapOwned;
+
 use crate::graphic::GraphicInfo;
 
 pub struct BootInfo {
     pub graphic_info: GraphicInfo,
+    pub memory_map: MemoryMapOwned,
 }
 
 impl BootInfo {
-    pub fn new(graphic_info: GraphicInfo) -> Self {
-        Self { graphic_info }
+    pub fn new(graphic_info: GraphicInfo, memory_map: MemoryMapOwned) -> Self {
+        Self {
+            graphic_info,
+            memory_map,
+        }
     }
 }
 
 pub struct Kernel {
     base_addr: u64,
     entry_point_addr: u64,
-    entry_point: fn(&BootInfo) -> !,
+    entry_point: extern "sysv64" fn(&BootInfo) -> !,
 }
 
 impl Kernel {

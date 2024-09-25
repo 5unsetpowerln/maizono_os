@@ -52,7 +52,8 @@ impl GraphicInfo {
         let width = resolution.0;
         let height = resolution.1;
         let stride = current_mode_info.stride();
-        let bytes_per_pixel = frame_buffer.size() / width * height;
+        // let bytes_per_pixel = frame_buffer.size() / width * height; THIS CALCULATION IS INCORRECT!!!.
+        let bytes_per_pixel = 4;
         let pixel_format =
             PixelFormat::from_gop_pixel_format_type(&current_mode_info.pixel_format())?;
         let frame_buffer_addr = frame_buffer.as_mut_ptr() as u64;
