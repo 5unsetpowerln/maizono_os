@@ -40,32 +40,32 @@ impl fmt::Write for Console {
 }
 
 impl Console {
-    fn new(bg_color: RgbColor, fg_color: RgbColor) -> Self {
+    fn new(bg_color: RgbColor, fg_color: RgbColor) -> Result<Self> {
         frame_buffer::fill_rect(
             0,
             0,
             COLUMNS * CHARACTER_WIDTH,
             ROWS * CHARACTER_HEIGHT,
             bg_color,
-        );
-        Self {
+        )?;
+        Ok(Self {
             buffer: [['\x00'; COLUMNS]; ROWS],
             bg_color,
             fg_color,
             cursor_row: 0,
             cursor_column: 0,
-        }
+        })
     }
 
     fn new_line(&mut self) {
         self.cursor_column = 0;
         if self.cursor_row < ROWS - 1 {
             self.cursor_row += 1;
-            return;
         } else {
             for y in 0..ROWS * font::CHARACTER_HEIGHT {
                 for x in 0..COLUMNS * font::CHARACTER_WIDTH {
-                    frame_buffer::write_pixel(x, y, self.bg_color.into());
+                    frame_buffer::write_pixel(x, y, self.bg_color.into())
+                        .expect("Failed to write a pixel.");
                 }
             }
 
@@ -84,7 +84,8 @@ impl Console {
                 }
 
                 let s = str::from_utf8(&s_buf[..pos]).expect("utf-8 decode error");
-                frame_buffer::write_string(0, row * font::CHARACTER_HEIGHT, s, self.fg_color);
+                frame_buffer::write_string(0, row * font::CHARACTER_HEIGHT, s, self.fg_color)
+                    .expect("Failed to write string.");
             }
 
             *self.buffer.last_mut().expect("console buffer is empty") = ['\x00'; COLUMNS];
@@ -101,7 +102,8 @@ impl Console {
                     font::CHARACTER_HEIGHT * self.cursor_row,
                     c,
                     self.fg_color,
-                );
+                )
+                .expect("Failed to write a character.");
                 self.buffer[self.cursor_row][self.cursor_column] = c;
                 self.cursor_column += 1;
             }
@@ -141,7 +143,7 @@ macro_rules! printk {
 }
 
 pub fn init(bg: RgbColor, fg: RgbColor) -> Result<()> {
-    lock_console()?.replace(Console::new(bg, fg));
+    lock_console()?.replace(Console::new(bg, fg)?);
     Ok(())
 }
 

@@ -56,7 +56,12 @@ impl Device {
     }
 
     fn read_pci_config_space(&self, offset_in_pci_config_space: u8) -> u32 {
-        make_address(self.bus, self.device, self.func, offset_in_pci_config_space);
+        write_address(make_address(
+            self.bus,
+            self.device,
+            self.func,
+            offset_in_pci_config_space,
+        ));
         read_data()
     }
 
@@ -78,7 +83,7 @@ impl Device {
         }
 
         // if address is 64bit
-        if (index >= 5) {
+        if index >= 5 {
             return Err(PciError::BaseAddressRegisterIndexOutOfRangeError.into());
         }
         let upper_base_addr = self.read_pci_config_space(offset_in_pci_config_space + 4) as u64;
@@ -294,4 +299,35 @@ fn io_in_32(addr: u16) -> u32 {
         )
     }
     data
+}
+
+pub fn xhci() -> Result<()> {
+    scan_all_bus()?;
+    let devices = get_devices()?;
+    let mut xhci_device_opt = None;
+    for device in devices.iter() {
+        if device.class_code.is_match_all(0x0c, 0x03, 0x30) {
+            xhci_device_opt.replace(device);
+            break;
+        }
+    }
+
+    if xhci_device_opt.is_none() {
+        printk!("no xHCI device");
+        return Ok(());
+    }
+
+    let xhci_device = xhci_device_opt.unwrap();
+    printk!(
+        "xHCI device: addr = {:X}:{:X}:{:X}",
+        xhci_device.bus,
+        xhci_device.device,
+        xhci_device.func
+    );
+
+    let xhc_base_addr = xhci_device.read_base_addr(0)?;
+    let xhc_mmio_base = xhc_base_addr & !(0xf as u64);
+    printk!("xhc mmio base: 0x{:X}", xhc_mmio_base);
+
+    Ok(())
 }
