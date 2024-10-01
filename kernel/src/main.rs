@@ -1,11 +1,13 @@
 #![no_std]
 #![no_main]
 
-// extern crate alloc;
+extern crate alloc;
 
 mod error;
 mod graphic;
+mod memory;
 mod pci;
+mod usb;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -17,7 +19,6 @@ use graphic::{
 };
 
 /// kernel entrypoint
-// pub extern "C" fn _start(boot_info: &'static mut bootloader_api::BootInfo) -> ! {
 #[no_mangle]
 #[export_name = "_start"]
 pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {

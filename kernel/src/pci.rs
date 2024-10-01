@@ -4,7 +4,11 @@ use arrayvec::ArrayVec;
 // use common::arrayvec::ArrayVec;
 use spin::{Mutex, MutexGuard};
 
-use crate::{error::Result, printk};
+use crate::{
+    error::Result,
+    printk,
+    usb::{self, xhci::init_host_controller},
+};
 
 /// Address of CONFIG_ADDRESS register in IO Address Space
 const CONFIG_ADDRESS_ADDRESS: u16 = 0x0cf8;
@@ -328,6 +332,33 @@ pub fn xhci() -> Result<()> {
     let xhc_base_addr = xhci_device.read_base_addr(0)?;
     let xhc_mmio_base = xhc_base_addr & !(0xf as u64);
     printk!("xhc mmio base: 0x{:X}", xhc_mmio_base);
+
+    let mut controller = unsafe { usb::xhci::Controller::new(xhc_mmio_base) };
+    controller.init();
+    // init_host_controller(xhc_mmio_base);
+
+    // let a = xhci::Registers::
+
+    // xhc = new usb::xhci::RealController{mmio_base};
+
+    // if (auto err = xhc->Initialize(); err != usb::error::kSuccess)
+    // {
+    //     delete xhc;
+    //     printk("failed to initialize xHCI controller: %d\n", err);
+    //     return;
+    // }
+
+    // Configure MSI
+    // let bsp_local_apic_id = {
+    //     let ptr = (0xfee00020 as u64) as *const u32;
+    //     unsafe {
+    //         //
+    //         *ptr >> 24
+    //     }
+    // };
+    // printk!("bsp_local_apic_id: {}", bsp_local_apic_id);
+
+    // let msi_msg_addr = 0xfee00000 | (bsp_local_apic_id << 12);
 
     Ok(())
 }
