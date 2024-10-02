@@ -1,17 +1,23 @@
 use crate::{error::Result, printk};
 use common::graphic::{GraphicInfo, Pixel, PixelFormat, RgbColor};
 use spin::{Mutex, MutexGuard};
+use thiserror_no_std::Error;
 
 use super::font::{self, CHARACTER_WIDTH, GARBLED_FONT, U8_FONT};
 
 static mut FRAME_BUF: Mutex<Option<FrameBuf>> = Mutex::new(None);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum FrameBufferError {
+    #[error("Unsupported pixel format.")]
     UnsupportedPixelFormatError,
+    #[error("The frame buffer is not initialized yet.")]
     NotInitializedError,
+    #[error("Attempted to write a pixel to outside of frame buffer.")]
     OutsideBufferError,
+    #[error("Failed to lock the frame buffer.")]
     FrameBufferLockError,
+    #[error("Unsupported character.")]
     UnsupportedCharacterError,
 }
 

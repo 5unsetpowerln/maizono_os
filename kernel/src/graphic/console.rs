@@ -5,6 +5,7 @@ use core::{
 
 use common::graphic::RgbColor;
 use spin::{Mutex, MutexGuard};
+use thiserror_no_std::Error;
 
 use crate::error::Result;
 
@@ -18,9 +19,11 @@ const COLUMNS: usize = 150;
 
 pub static mut CONSOLE: Mutex<Option<Console>> = Mutex::new(None);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ConsoleError {
+    #[error("The console is not initialized yet.")]
     UninitializedError,
+    #[error("Failed to lock the console.")]
     ConsoleLockError,
 }
 

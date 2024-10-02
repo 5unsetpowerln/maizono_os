@@ -25,10 +25,10 @@ const CURSOR_SHAPE_STR: [&str; 15] = [
     "      @@@      ",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MouseError {
-    UninitializedError,
-}
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub enum MouseError {
+// UninitializedError,
+// }
 
 pub fn draw_cursor() {
     for (y, row) in CURSOR_SHAPE_STR.into_iter().enumerate() {

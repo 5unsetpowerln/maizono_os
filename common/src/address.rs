@@ -12,6 +12,7 @@ impl AddressError {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct AlignedAddress<const SIZE: usize>(u64);
 impl<const SIZE: usize> AlignedAddress<SIZE> {
     pub fn new(addr: u64) -> Result<Self> {

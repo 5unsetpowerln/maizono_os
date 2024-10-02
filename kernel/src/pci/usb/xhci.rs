@@ -12,9 +12,9 @@ use core::num::NonZeroUsize;
 use common::array::AlignedArray64;
 // use xhci::{accessor::Mapper, Registers};
 
-use crate::printk;
+use crate::{pci::usb::memory::alloc_array, printk};
 
-use super::device_manager::DeviceManager;
+use super::{device_manager::DeviceManager, error::UsbResult};
 
 // const DEVICE_SIZE: usize = 8;
 const NUMBER_OF_DEVICE: usize = 8; // 1 ~ 255
@@ -34,58 +34,58 @@ impl xhci::accessor::Mapper for MemoryMapper {
     fn unmap(&mut self, virt_start: usize, bytes: usize) {}
 }
 
-pub fn init_host_controller(mmio_base: u64) {
-    let registers = unsafe { xhci::registers::Registers::new(mmio_base as usize, MemoryMapper) };
+// pub fn init_host_controller(mmio_base: u64) {
+//     let registers = unsafe { xhci::registers::Registers::new(mmio_base as usize, MemoryMapper) };
 
-    // reset contoroller
-    {
-        let usb_status_register = registers.operational.usbsts.read_volatile();
-        let mut usb_command_register = registers.operational.usbcmd.read_volatile();
+//     // reset contoroller
+//     {
+//         let usb_status_register = registers.operational.usbsts.read_volatile();
+//         let mut usb_command_register = registers.operational.usbcmd.read_volatile();
 
-        // check if USBSTS.HCH is 1 (if xHC is stopped state)
-        if !usb_status_register.hc_halted() {
-            printk!("xHC is not stopped state!");
-            return;
-        }
+//         // check if USBSTS.HCH is 1 (if xHC is stopped state)
+//         if !usb_status_register.hc_halted() {
+//             printk!("xHC is not stopped state!");
+//             return;
+//         }
 
-        // write 1 to USBCMD.HCRST (write 1 to reset xhc)
-        usb_command_register.set_host_controller_reset();
+//         // write 1 to USBCMD.HCRST (write 1 to reset xhc)
+//         usb_command_register.set_host_controller_reset();
 
-        // wait until USUBSTS.CNR is 0
-        printk!("Waiting until USBSTS.CHR is 0.");
-        loop {
-            if !usb_status_register.controller_not_ready() {
-                break;
-            }
-        }
-        printk!("Done.");
-    }
+//         // wait until USUBSTS.CNR is 0
+//         printk!("Waiting until USBSTS.CHR is 0.");
+//         loop {
+//             if !usb_status_register.controller_not_ready() {
+//                 break;
+//             }
+//         }
+//         printk!("Done.");
+//     }
 
-    // configure device context
-    {
-        // read HCSPARAMS1.MaxSlots.
-        let max_slots = registers
-            .capability
-            .hcsparams1
-            .read_volatile()
-            .number_of_device_slots();
+//     // configure device context
+//     {
+//         // read HCSPARAMS1.MaxSlots.
+//         let max_slots = registers
+//             .capability
+//             .hcsparams1
+//             .read_volatile()
+//             .number_of_device_slots();
 
-        // write number of device ctx that it will actually be enabled to CONFIG.MaxSlotsEn (0 ~ MaxSlots)
-        let mut config_register = registers.operational.config.read_volatile();
-        if MAX_SLOTS_EN as u8 > max_slots {
-            printk!("HCSPARAMS1.MaxSlots is too few.");
-            return;
-        }
-        config_register.set_max_device_slots_enabled(3);
+//         // write number of device ctx that it will actually be enabled to CONFIG.MaxSlotsEn (0 ~ MaxSlots)
+//         let mut config_register = registers.operational.config.read_volatile();
+//         if MAX_SLOTS_EN as u8 > max_slots {
+//             printk!("HCSPARAMS1.MaxSlots is too few.");
+//             return;
+//         }
+//         config_register.set_max_device_slots_enabled(3);
 
-        // set pointer of the DCBAA to DCBAAP.
-        let mut dcbaap = registers.operational.dcbaap.read_volatile();
-        dcbaap.set(unsafe { DCBAA.as_ptr() } as u64);
-    }
+//         // set pointer of the DCBAA to DCBAAP.
+//         let mut dcbaap = registers.operational.dcbaap.read_volatile();
+//         dcbaap.set(unsafe { DCBAA.as_ptr() } as u64);
+//     }
 
-    // generation and registeration of Command Ring
-    {}
-}
+//     // generation and registeration of Command Ring
+//     {}
+// }
 
 pub struct Controller {
     mmio_base: u64,
@@ -98,13 +98,15 @@ impl Controller {
         Self {
             mmio_base,
             registers: xhci::registers::Registers::new(mmio_base as usize, MemoryMapper),
+            device_manager: DeviceManager::new(NUMBER_OF_DEVICE),
         }
     }
 
-    pub fn init(&mut self) {
-        // if (auto err = devmgr_.Initialize(kDeviceSize)) {
-        //   return err;
-        // }
+    pub fn init(&mut self) -> UsbResult<()> {
+        // if (auto err = devmgr_.Initialize(kDeviceSize))
+        if let Err(err) = self.device_manager.init() {
+            return Err(err); // return err;
+        }
 
         // RequestHCOwnership(mmio_base_, cap_->HCCPARAMS1.Read());
 
@@ -172,9 +174,6 @@ impl Controller {
         config.set_max_device_slots_enabled(NUMBER_OF_DEVICE as u8); // config.bits.max_device_slots_enabled = kDeviceSize;
         self.registers.operational.config.write_volatile(config); // op_->CONFIG.Write(config);
 
-        // self.try_allocate_with_align(core::mem::size_of::<u64>() * max_slots as usize, 64, 4096)?
-        // .address();
-
         // auto hcsparams2 = cap_->HCSPARAMS2.Read();
         // const uint16_t max_scratchpad_buffers =
         //   hcsparams2.bits.max_scratchpad_buffers_low
@@ -191,9 +190,11 @@ impl Controller {
         //       scratchpad_buf_arr);
         // }
 
-        // DCBAAP_Bitmap dcbaap{};
-        // dcbaap.SetPointer(reinterpret_cast<uint64_t>(devmgr_.DeviceContexts()));
-        // op_->DCBAAP.Write(dcbaap);
+        let mut dcbaap = self.registers.operational.dcbaap.read_volatile(); // DCBAAP_Bitmap dcbaap{};
+        dcbaap.set(self.device_manager.device_context_pointers_ptr().get()); // dcbaap.SetPointer(reinterpret_cast<uint64_t>(devmgr_.DeviceContexts()));
+        self.registers.operational.dcbaap.write_volatile(dcbaap); // op_->DCBAAP.Write(dcbaap);
+
+        printk!("done");
 
         // auto primary_interrupter = &InterrupterRegisterSets()[0];
         // if (auto err = cr_.Initialize(32)) {
@@ -217,5 +218,7 @@ impl Controller {
         // op_->USBCMD.Write(usbcmd);
 
         // return MAKE_ERROR(Error::kSuccess);
+
+        Ok(())
     }
 }

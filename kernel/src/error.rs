@@ -1,14 +1,16 @@
+use thiserror_no_std::Error;
+
 use crate::{
-    graphic::{console::ConsoleError, frame_buffer::FrameBufferError, mouse::MouseError},
-    pci::PciError,
+    graphic::{console::ConsoleError, frame_buffer::FrameBufferError},
+    pci::error::PciError,
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Error)]
 pub enum Error {
     FrameBufferError(FrameBufferError),
     ConsoleError(ConsoleError),
-    MouseError(MouseError),
-    PciError(PciError),
+    #[error(transparent)]
+    PciError(#[from] PciError),
 }
 
 impl From<FrameBufferError> for Error {
@@ -23,16 +25,10 @@ impl From<ConsoleError> for Error {
     }
 }
 
-impl From<MouseError> for Error {
-    fn from(err: MouseError) -> Self {
-        Self::MouseError(err)
-    }
-}
-
-impl From<PciError> for Error {
-    fn from(err: PciError) -> Self {
-        Self::PciError(err)
-    }
-}
+// impl From<PciError> for Error {
+//     fn from(err: PciError) -> Self {
+//         Self::PciError(err)
+//     }
+// }
 
 pub type Result<T> = core::result::Result<T, Error>;

@@ -1,14 +1,14 @@
+pub mod error;
+mod usb;
+
 use core::arch::asm;
 
 use arrayvec::ArrayVec;
+use error::PciError;
 // use common::arrayvec::ArrayVec;
 use spin::{Mutex, MutexGuard};
 
-use crate::{
-    error::Result,
-    printk,
-    usb::{self, xhci::init_host_controller},
-};
+use crate::{error::Result, printk};
 
 /// Address of CONFIG_ADDRESS register in IO Address Space
 const CONFIG_ADDRESS_ADDRESS: u16 = 0x0cf8;
@@ -19,13 +19,13 @@ const DEVICE_CAPACITY: usize = 32;
 type Devices = ArrayVec<Device, DEVICE_CAPACITY>;
 static mut DEVICES: Mutex<Option<Devices>> = Mutex::new(None);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PciError {
-    DeviceCapacityError,
-    UninitializedError,
-    DeviceLockError,
-    BaseAddressRegisterIndexOutOfRangeError,
-}
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub enum PciError {
+//     DeviceCapacityError,
+//     UninitializedError,
+//     DeviceLockError,
+//     BaseAddressRegisterIndexOutOfRangeError,
+// }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Device {
@@ -334,7 +334,9 @@ pub fn xhci() -> Result<()> {
     printk!("xhc mmio base: 0x{:X}", xhc_mmio_base);
 
     let mut controller = unsafe { usb::xhci::Controller::new(xhc_mmio_base) };
-    controller.init();
+    if let Err(e) = controller.init() {
+        printk!("failed to init the controller: {:#?}", e)
+    };
     // init_host_controller(xhc_mmio_base);
 
     // let a = xhci::Registers::

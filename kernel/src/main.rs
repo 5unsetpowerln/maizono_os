@@ -7,7 +7,6 @@ mod error;
 mod graphic;
 mod memory;
 mod pci;
-mod usb;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -29,7 +28,9 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
     console::init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200)).unwrap();
 
     // init pci module
-    pci::init().unwrap();
+    if let Err(err) = pci::init() {
+        printk!("{:#?}", err);
+    }
 
     printk!("framebuffer width: {}", frame_buffer::width().unwrap());
     printk!("framebuffer height: {}", frame_buffer::height().unwrap());
