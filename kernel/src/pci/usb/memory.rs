@@ -1,6 +1,6 @@
 // use linked_list_allocator::LockedHeap;
 
-use common::address::AlignedAddress;
+use common::address::AlignedAddress64;
 use spin::{Lazy, Mutex, MutexGuard};
 use thiserror_no_std::Error;
 
@@ -39,21 +39,27 @@ impl Allocator {
         }
     }
 
+    // unsafe fn alloc_trb_ring(&mut self, ring_size: usize) -> UsbError<AlignedAddress64> {
+    // unsafe {self.alloc_array(size_of::<u128>() *)}
+    // }
+
+    /// Allocates memory for array of T with zero-initialization.
     unsafe fn alloc_array<T>(
         &mut self,
         number_of_object: usize,
         alignment: usize,
         boudary: usize,
-    ) -> UsbResult<AlignedAddress<64>> {
+    ) -> UsbResult<AlignedAddress64> {
         unsafe { self.alloc_memory(size_of::<T>() * number_of_object, alignment, boudary) }
     }
 
+    /// Allocates memory with zero-initialization.
     unsafe fn alloc_memory(
         &mut self,
         size: usize,
         alignment: usize,
         boundary: usize,
-    ) -> UsbResult<AlignedAddress<64>> {
+    ) -> UsbResult<AlignedAddress64> {
         if alignment > 0 {
             self.alloc_point_ptr = ceil(self.alloc_point_ptr, alignment as u64);
         }
@@ -78,7 +84,7 @@ impl Allocator {
             unsafe { *ptr = 0 };
         }
 
-        Ok(AlignedAddress::<64>::new(allocated_addr).unwrap())
+        Ok(AlignedAddress64::new(allocated_addr).unwrap())
     }
 
     fn free_memory(_ptr: u64) {}
@@ -92,11 +98,12 @@ unsafe fn lock_allocator<'a>() -> UsbResult<MutexGuard<'a, Allocator>> {
     Ok(unsafe { ALLOCATOR.try_lock() }.ok_or(MemoryError::AllocatorLockError)?)
 }
 
+/// Allocates memory for array of T with zero-initialization.
 pub fn alloc_array<T>(
     size: usize,
     alignment: usize,
     boudary: usize,
-) -> UsbResult<AlignedAddress<64>> {
+) -> UsbResult<AlignedAddress64> {
     unsafe {
         lock_allocator()
             .as_mut()

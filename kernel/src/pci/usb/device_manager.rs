@@ -1,8 +1,8 @@
-use common::address::AlignedAddress;
+use common::address::AlignedAddress64;
 use thiserror_no_std::Error;
 use xhci::{context::Device32Byte, Registers};
 
-use super::{error::UsbResult, memory::alloc_array, xhci::MemoryMapper};
+use super::{error::UsbResult, memory::alloc_array};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum DeviceManagerError {
@@ -14,7 +14,7 @@ pub enum DeviceManagerError {
 pub struct DeviceContext(Device32Byte);
 
 pub struct DeviceManager {
-    device_context_pointers_ptr: AlignedAddress<64>, // can be used as DCBAAP's value.
+    device_context_pointers_ptr: AlignedAddress64, // can be used as DCBAAP's value.
     max_slots: usize,
     // device: Device
 }
@@ -23,7 +23,7 @@ impl DeviceManager {
     pub fn new(max_slots: usize) -> Self {
         Self {
             max_slots,
-            device_context_pointers_ptr: AlignedAddress::<64>::new(0).unwrap(),
+            device_context_pointers_ptr: AlignedAddress64::new(0).unwrap(),
         }
     }
 
@@ -44,7 +44,7 @@ impl DeviceManager {
         Ok(())
     }
 
-    pub fn device_context_pointers_ptr(&self) -> AlignedAddress<64> {
+    pub fn device_context_pointers_ptr(&self) -> AlignedAddress64 {
         self.device_context_pointers_ptr
     }
 }

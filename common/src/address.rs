@@ -12,11 +12,11 @@ impl AddressError {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct AlignedAddress<const SIZE: usize>(u64);
 impl<const SIZE: usize> AlignedAddress<SIZE> {
     pub fn new(addr: u64) -> Result<Self> {
-        if addr % 64 == 0 {
+        if addr as usize % SIZE == 0 {
             Ok(Self(addr))
         } else {
             Err(AddressError::AddressNotAlignedError.into())
@@ -27,3 +27,19 @@ impl<const SIZE: usize> AlignedAddress<SIZE> {
         self.0
     }
 }
+
+pub type AlignedAddress64 = AlignedAddress<64>;
+
+// #[derive(Clone, Copy, Debug)]
+// pub struct AlignedAddress64(u64);
+// impl AlignedAddress64 {
+//     pub fn new(addr: u64) -> Result<Self> {
+//         if addr % 64 == 0 {
+//             Ok(Self(addr))
+//         } else {
+//             Err(AddressError::AddressNotAlignedError.into())
+//         }
+//     }
+
+//     pub fn get()
+// }

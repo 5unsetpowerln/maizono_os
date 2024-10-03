@@ -1,7 +1,7 @@
 pub mod error;
 mod usb;
 
-use core::arch::asm;
+use core::{arch::asm, num::NonZeroUsize};
 
 use arrayvec::ArrayVec;
 use error::PciError;
@@ -333,10 +333,13 @@ pub fn xhci() -> Result<()> {
     let xhc_mmio_base = xhc_base_addr & !(0xf as u64);
     printk!("xhc mmio base: 0x{:X}", xhc_mmio_base);
 
-    let mut controller = unsafe { usb::xhci::Controller::new(xhc_mmio_base) };
+    let mapper = MemoryMapper();
+    printk!("initializing xhc...");
+    let mut controller = unsafe { usb::xhci::Controller::new(xhc_mmio_base, mapper) };
     if let Err(e) = controller.init() {
         printk!("failed to init the controller: {:#?}", e)
     };
+    printk!("done.");
     // init_host_controller(xhc_mmio_base);
 
     // let a = xhci::Registers::
@@ -363,4 +366,26 @@ pub fn xhci() -> Result<()> {
     // let msi_msg_addr = 0xfee00000 | (bsp_local_apic_id << 12);
 
     Ok(())
+}
+
+// #[derive(Clone, Copy, Debug)]
+// pub struct MemoryMapper();
+
+// impl xhci::accessor::Mapper for MemoryMapper {
+//     unsafe fn map(&mut self, phys_start: usize, _bytes: usize) -> core::num::NonZeroUsize {
+//         NonZeroUsize::new_unchecked(phys_start)
+//     }
+
+//     fn unmap(&mut self, virt_start: usize, bytes: usize) {}
+// }
+
+#[derive(Clone, Copy, Debug)]
+pub struct MemoryMapper();
+
+impl xhci::accessor::Mapper for MemoryMapper {
+    unsafe fn map(&mut self, phys_start: usize, _bytes: usize) -> core::num::NonZeroUsize {
+        NonZeroUsize::new_unchecked(phys_start)
+    }
+
+    fn unmap(&mut self, virt_start: usize, bytes: usize) {}
 }

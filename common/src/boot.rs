@@ -1,18 +1,42 @@
+use core::ops::Deref;
+
 use uefi::mem::memory_map::MemoryMapOwned;
 
 use crate::graphic::GraphicInfo;
 
 pub struct BootInfo {
     pub graphic_info: GraphicInfo,
-    pub memory_map: MemoryMapOwned,
+    pub memory_map: MemoryMap,
 }
 
 impl BootInfo {
-    pub fn new(graphic_info: GraphicInfo, memory_map: MemoryMapOwned) -> Self {
+    pub fn new(graphic_info: GraphicInfo, memory_map: MemoryMap) -> Self {
         Self {
             graphic_info,
             memory_map,
         }
+    }
+}
+
+pub struct MemoryMap(MemoryMapOwned);
+
+impl MemoryMap {
+    pub fn new(memmap: MemoryMapOwned) -> Self {
+        Self(memmap)
+    }
+}
+
+impl Deref for MemoryMap {
+    type Target = MemoryMapOwned;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<MemoryMapOwned> for MemoryMap {
+    fn from(value: MemoryMapOwned) -> Self {
+        Self(value)
     }
 }
 
