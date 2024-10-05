@@ -1,11 +1,12 @@
 #![no_std]
 #![no_main]
+#![feature(inherent_associated_types)]
 
 // extern crate alloc;
 
 mod error;
 mod graphic;
-mod memory;
+mod memory_manager;
 mod memory_map;
 mod paging;
 mod pci;
@@ -69,7 +70,6 @@ extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
     segmentation::init();
     paging::init();
 
-    // init pci module
     if let Err(err) = pci::init() {
         printk!("{:#?}", err);
     }
@@ -77,8 +77,10 @@ extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
     printk!("framebuffer width: {}", frame_buffer::width().unwrap());
     printk!("framebuffer height: {}", frame_buffer::height().unwrap());
 
+    memory_manager::init(&boot_info.memory_map);
     // xhci
-    pci::xhci().unwrap();
+    printk!("hello");
+    // pci::xhci().unwrap();
 
     // for i in boot_info.memory_map.entries() {
     // i.ty

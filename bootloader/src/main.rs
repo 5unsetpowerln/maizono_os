@@ -188,7 +188,7 @@ fn main_inner() -> Status {
     info!("exiting boot services.");
     let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA) };
 
-    let boot_info = BootInfo::new(graphic_info, memory_map.into());
+    let boot_info = BootInfo::new(graphic_info, memory_map);
     kernel.run(&boot_info);
 
     loop {

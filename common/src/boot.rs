@@ -6,11 +6,11 @@ use crate::graphic::GraphicInfo;
 
 pub struct BootInfo {
     pub graphic_info: GraphicInfo,
-    pub memory_map: MemoryMap,
+    pub memory_map: MemoryMapOwned,
 }
 
 impl BootInfo {
-    pub fn new(graphic_info: GraphicInfo, memory_map: MemoryMap) -> Self {
+    pub fn new(graphic_info: GraphicInfo, memory_map: MemoryMapOwned) -> Self {
         Self {
             graphic_info,
             memory_map,
@@ -18,27 +18,27 @@ impl BootInfo {
     }
 }
 
-pub struct MemoryMap(MemoryMapOwned);
+// pub struct MemoryMap(MemoryMapOwned);
 
-impl MemoryMap {
-    pub fn new(memmap: MemoryMapOwned) -> Self {
-        Self(memmap)
-    }
-}
+// impl MemoryMap {
+//     pub fn new(memmap: MemoryMapOwned) -> Self {
+//         Self(memmap)
+//     }
+// }
 
-impl Deref for MemoryMap {
-    type Target = MemoryMapOwned;
+// impl Deref for MemoryMap {
+//     type Target = MemoryMapOwned;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         &self.0
+//     }
+// }
 
-impl From<MemoryMapOwned> for MemoryMap {
-    fn from(value: MemoryMapOwned) -> Self {
-        Self(value)
-    }
-}
+// impl From<MemoryMapOwned> for MemoryMap {
+//     fn from(value: MemoryMapOwned) -> Self {
+//         Self(value)
+//     }
+// }
 
 pub struct Kernel {
     base_addr: u64,
