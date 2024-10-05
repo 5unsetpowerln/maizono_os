@@ -15,6 +15,7 @@ use boot::MemoryType;
 use common::boot::BootInfo;
 use common::graphic::GraphicInfo;
 use kernel::load_kernel;
+use log::debug;
 use log::error;
 use log::info;
 use runtime::Time;
@@ -176,6 +177,13 @@ fn main_inner() -> Status {
     };
     info!("kernel_entry_point: 0x{:X}", kernel.entry_point_addr());
     info!("kernel_base_addr: 0x{:X}", kernel.base_addr());
+    debug!("main_inner: 0x{:X}", main_inner as *const fn() as u64);
+    // debug!(
+    //     "0x{:X} == 0x{:X} = {}",
+    //     kernel.entry_point as *const fn() as u64,
+    //     kernel.entry_point_addr,
+    //     kernel.entry_point as *const fn() as u64 == kernel.entry_point_addr
+    // );
 
     info!("exiting boot services.");
     let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA) };

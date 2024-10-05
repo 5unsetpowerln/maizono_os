@@ -9,7 +9,6 @@ use uefi::{
     boot::{self, AllocateType, MemoryType},
     cstr16,
     proto::media::file::{File, FileAttribute, FileInfo, FileMode, FileType},
-    runtime::set_virtual_address_map,
     CStr16,
 };
 
@@ -104,25 +103,25 @@ fn copy_load_segment(src: &[u8], elf: &elf::Elf) -> Result<()> {
     Ok(())
 }
 
-fn copy_dynamic_segment(src: &[u8], elf: &elf::Elf) -> Result<()> {
-    for program_header in elf.program_headers.iter() {
-        if program_header.p_type != elf::program_header::PT_DYNAMIC {
-            debug!("type: {}", program_header.p_type);
-            debug!(
-                "range: 0x{:X} ~ 0x{:X}",
-                program_header.p_paddr,
-                program_header.p_paddr + program_header.p_memsz
-            );
-            debug!("");
-            continue;
-        }
+// fn copy_dynamic_segment(src: &[u8], elf: &elf::Elf) -> Result<()> {
+//     for program_header in elf.program_headers.iter() {
+//         if program_header.p_type != elf::program_header::PT_DYNAMIC {
+//             debug!("type: {}", program_header.p_type);
+//             debug!(
+//                 "range: 0x{:X} ~ 0x{:X}",
+//                 program_header.p_paddr,
+//                 program_header.p_paddr + program_header.p_memsz
+//             );
+//             debug!("");
+//             continue;
+//         }
 
-        copy_segment(src, program_header)
-            .map_err(|e| Error::msg(e).context("Failed to copy the segment."))?;
-    }
+//         copy_segment(src, program_header)
+//             .map_err(|e| Error::msg(e).context("Failed to copy the segment."))?;
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 fn copy_segment(src: &[u8], program_header: &elf::ProgramHeader) -> Result<()> {
     let offset = program_header.p_offset as usize;

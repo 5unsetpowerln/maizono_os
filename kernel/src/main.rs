@@ -8,6 +8,7 @@ mod graphic;
 mod memory;
 mod memory_map;
 mod pci;
+mod segmentation;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -62,11 +63,11 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
 }
 
 extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
-    // init framebuffer module
     frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800)).unwrap();
 
-    // init console module
     console::init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200)).unwrap();
+
+    segmentation::init();
 
     // init pci module
     if let Err(err) = pci::init() {
