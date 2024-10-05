@@ -1,12 +1,13 @@
 #![no_std]
 #![no_main]
 
-extern crate alloc;
+// extern crate alloc;
 
 mod error;
 mod graphic;
 mod memory;
 mod memory_map;
+mod paging;
 mod pci;
 mod segmentation;
 
@@ -64,10 +65,9 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
 
 extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
     frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800)).unwrap();
-
     console::init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200)).unwrap();
-
     segmentation::init();
+    paging::init();
 
     // init pci module
     if let Err(err) = pci::init() {
