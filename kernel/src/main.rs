@@ -4,12 +4,12 @@
 
 // extern crate alloc;
 
-mod bitmap_mem_manager;
 mod error;
 mod graphic;
 mod memory_map;
 mod paging;
 mod pci;
+mod phys_mem_manager;
 mod segmentation;
 
 use core::arch::asm;
@@ -85,7 +85,7 @@ extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
     printk!("framebuffer width: {}", frame_buffer::width().unwrap());
     printk!("framebuffer height: {}", frame_buffer::height().unwrap());
 
-    bitmap_mem_manager::bitmap_mem_manager().init(&boot_info.memory_map);
+    phys_mem_manager::mem_manager().init(&boot_info.memory_map);
 
     printk!("hello");
 

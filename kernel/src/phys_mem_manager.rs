@@ -64,12 +64,14 @@ impl BitmapMemoryManager {
             let phys_start = desc.phys_start as usize;
             let phys_end = phys_start + (desc.page_count as usize) * UEFI_PAGE_SIZE;
 
+            // mark a missing area as an allocated area
             if last_available_end < phys_start as usize {
                 let id = FrameID(last_available_end / BYTES_PER_FRAME);
                 let count = (phys_start - last_available_end) / BYTES_PER_FRAME;
                 self.mark_allocated(id, count);
             }
 
+            // mark an used area as an allocated area
             if is_available(desc.ty) {
                 last_available_end = phys_end;
             } else {
@@ -83,31 +85,6 @@ impl BitmapMemoryManager {
             FrameID(1),
             FrameID(last_available_end as usize / BYTES_PER_FRAME),
         );
-
-        // let mut last_available_tale = 0;
-        // for descriptor in memory_map.entries() {
-        //     if last_available_tale < descriptor.phys_start {
-        //         self.mark_allocated(
-        //             FrameID(last_available_tale as usize / BYTES_PER_FRAME),
-        //             ((descriptor.phys_start - last_available_tale) as usize) / BYTES_PER_FRAME,
-        //         );
-        //     }
-        //     let current_descriptor_end =
-        //         descriptor.phys_start + descriptor.page_count * UEFI_PAGE_SIZE as u64;
-        //     if is_available(descriptor.ty) {
-        //         last_available_tale = current_descriptor_end;
-        //     } else {
-        //         self.mark_allocated(
-        //             FrameID(descriptor.phys_start as usize / BYTES_PER_FRAME),
-        //             (descriptor.page_count as usize * UEFI_PAGE_SIZE) / BYTES_PER_FRAME,
-        //         );
-        //     }
-        // }
-        // printk!("debug point");
-        // self.set_memory_range(
-        //     FrameID(1),
-        //     FrameID(last_available_tale as usize / BYTES_PER_FRAME),
-        // );
     }
 
     fn mark_allocated(&mut self, first_frame_id: FrameID, count: usize) {
@@ -168,6 +145,6 @@ impl BitmapMemoryManager {
     }
 }
 
-pub fn bitmap_mem_manager() -> MutexGuard<'static, BitmapMemoryManager> {
+pub fn mem_manager() -> MutexGuard<'static, BitmapMemoryManager> {
     MEMORY_MANAGER.lock()
 }
