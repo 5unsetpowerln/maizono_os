@@ -1,5 +1,6 @@
 use core::arch::asm;
 
+use spin::{Mutex, MutexGuard};
 use x86_64::{
     registers::segmentation::{Segment, CS, DS, ES, FS, GS, SS},
     structures::gdt::SegmentSelector,
@@ -7,16 +8,17 @@ use x86_64::{
 };
 
 type Gdt = [SegmentDescriptor; 3];
-static mut GDT: Gdt = [SegmentDescriptor::new(); 3];
+static GDT: Mutex<Gdt> = Mutex::new([SegmentDescriptor::new(); 3]);
 
 pub fn init() {
+    let mut gdt = GDT.lock();
+    gdt[0].0 = 0;
+    gdt[1].set_code_segment(DescriptorType::ExecuteRead, 0, 0, 0xfffff);
+    gdt[2].set_data_segment(DescriptorType::ReadWrite, 0, 0, 0xfffff);
+
+    unsafe { load_gdt(size_of::<Gdt>() as u16 - 1, gdt.as_ptr() as u64) };
+
     unsafe {
-        GDT[0].0 = 0;
-        GDT[1].set_code_segment(DescriptorType::ExecuteRead, 0, 0, 0xfffff);
-        GDT[2].set_data_segment(DescriptorType::ReadWrite, 0, 0, 0xfffff);
-
-        load_gdt(size_of::<Gdt>() as u16 - 1, GDT.as_ptr() as u64);
-
         DS::set_reg(SegmentSelector::new(0, Ring0));
         ES::set_reg(SegmentSelector::new(0, Ring0));
         FS::set_reg(SegmentSelector::new(0, Ring0));
@@ -33,7 +35,7 @@ pub struct SegmentDescriptor(u64);
 
 impl SegmentDescriptor {
     #[inline]
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         Self(0)
     }
 

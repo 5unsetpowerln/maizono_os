@@ -17,7 +17,7 @@ use super::{
 const ROWS: usize = 25;
 const COLUMNS: usize = 150;
 
-pub static mut CONSOLE: Mutex<Option<Console>> = Mutex::new(None);
+static CONSOLE: Mutex<Console> = Mutex::new(Console::new());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ConsoleError {
@@ -43,7 +43,33 @@ impl fmt::Write for Console {
 }
 
 impl Console {
-    fn new(bg_color: RgbColor, fg_color: RgbColor) -> Result<Self> {
+    // fn new(bg_color: RgbColor, fg_color: RgbColor) -> Result<Self> {
+    //     frame_buffer::fill_rect(
+    //         0,
+    //         0,
+    //         COLUMNS * CHARACTER_WIDTH,
+    //         ROWS * CHARACTER_HEIGHT,
+    //         bg_color,
+    //     )?;
+    //     Ok(Self {
+    //         buffer: [['\x00'; COLUMNS]; ROWS],
+    //         bg_color,
+    //         fg_color,
+    //         cursor_row: 0,
+    //         cursor_column: 0,
+    //     })
+    // }
+    const fn new() -> Self {
+        Self {
+            buffer: [['\x00'; COLUMNS]; ROWS],
+            bg_color: RgbColor::rgb(0x28, 0x28, 0x28),
+            fg_color: RgbColor::rgb(0x28, 0x28, 0x28),
+            cursor_row: 0,
+            cursor_column: 0,
+        }
+    }
+
+    pub fn init(&mut self, bg_color: RgbColor, fg_color: RgbColor) -> Result<()> {
         frame_buffer::fill_rect(
             0,
             0,
@@ -51,13 +77,14 @@ impl Console {
             ROWS * CHARACTER_HEIGHT,
             bg_color,
         )?;
-        Ok(Self {
+        *self = Self {
             buffer: [['\x00'; COLUMNS]; ROWS],
             bg_color,
             fg_color,
             cursor_row: 0,
             cursor_column: 0,
-        })
+        };
+        Ok(())
     }
 
     fn new_line(&mut self) {
@@ -98,7 +125,7 @@ impl Console {
     fn print(&mut self, s: &str) {
         for c in s.chars() {
             if c == '\n' {
-                self.new_line();
+                self.new_line()
             } else if self.cursor_column < COLUMNS - 1 {
                 frame_buffer::write_char(
                     font::CHARACTER_WIDTH * self.cursor_column,
@@ -119,8 +146,8 @@ impl Console {
     }
 }
 
-fn lock_console<'a>() -> Result<MutexGuard<'a, Option<Console>>> {
-    match unsafe { CONSOLE.try_lock() } {
+pub fn console() -> Result<MutexGuard<'static, Console>> {
+    match { CONSOLE.try_lock() } {
         Some(lock) => Ok(lock),
         None => Err(ConsoleError::ConsoleLockError.into()),
     }
@@ -131,37 +158,16 @@ macro_rules! printk {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
         crate::graphic::console::println("").unwrap();
-        match unsafe { crate::graphic::console::CONSOLE.try_lock() }.as_mut() {
-            Some(lock) => match lock.as_mut() {
-                Some(console) => {
-                    console.write_fmt(core::format_args!($($arg)*)).unwrap();
-                }
-                None => {
-                    panic!();
-                }
-            },
-            None => panic!(),
-        };
+        crate::graphic::console::console().unwrap().write_fmt(core::format_args!($($arg)*)).unwrap();
     }};
 }
 
-pub fn init(bg: RgbColor, fg: RgbColor) -> Result<()> {
-    lock_console()?.replace(Console::new(bg, fg)?);
-    Ok(())
-}
-
 pub fn print(s: &str) -> Result<()> {
-    lock_console()?
-        .as_mut()
-        .ok_or(ConsoleError::ConsoleLockError)?
-        .print(s);
+    console()?.print(s);
     Ok(())
 }
 
 pub fn println(s: &str) -> Result<()> {
-    lock_console()?
-        .as_mut()
-        .ok_or(ConsoleError::ConsoleLockError)?
-        .println(s);
+    console()?.println(s);
     Ok(())
 }

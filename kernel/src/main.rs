@@ -4,9 +4,9 @@
 
 // extern crate alloc;
 
+mod bitmap_mem_manager;
 mod error;
 mod graphic;
-mod memory_manager;
 mod memory_map;
 mod paging;
 mod pci;
@@ -22,7 +22,7 @@ use graphic::{
 };
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
-static mut KERNEL_STACK: KernelStack = KernelStack::new();
+static KERNEL_STACK: KernelStack = KernelStack::new();
 #[repr(align(16))]
 struct KernelStack([u8; KERNEL_STACK_SIZE]);
 impl KernelStack {
@@ -65,8 +65,15 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
 }
 
 extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
-    frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800)).unwrap();
-    console::init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200)).unwrap();
+    frame_buffer::frame_buf()
+        .unwrap()
+        .init(&boot_info.graphic_info, RgbColor::from(0x28282800))
+        .unwrap();
+    console::console()
+        .unwrap()
+        .init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200))
+        .unwrap();
+
     segmentation::init();
     paging::init();
 
@@ -74,17 +81,13 @@ extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
         printk!("{:#?}", err);
     }
 
+    printk!("kernel_main: {}", main as *mut fn() as u64);
     printk!("framebuffer width: {}", frame_buffer::width().unwrap());
     printk!("framebuffer height: {}", frame_buffer::height().unwrap());
 
-    memory_manager::init(&boot_info.memory_map);
-    // xhci
-    printk!("hello");
-    // pci::xhci().unwrap();
+    bitmap_mem_manager::bitmap_mem_manager().init(&boot_info.memory_map);
 
-    // for i in boot_info.memory_map.entries() {
-    // i.ty
-    // }
+    printk!("hello");
 
     loop {
         unsafe { asm!("hlt") }

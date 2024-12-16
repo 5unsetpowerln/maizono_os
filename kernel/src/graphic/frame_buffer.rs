@@ -5,7 +5,7 @@ use thiserror_no_std::Error;
 
 use super::font::{self, CHARACTER_WIDTH, GARBLED_FONT, U8_FONT};
 
-static mut FRAME_BUF: Mutex<Option<FrameBuf>> = Mutex::new(None);
+static FRAME_BUF: Mutex<FrameBuf> = Mutex::new(FrameBuf::new());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum FrameBufferError {
@@ -22,7 +22,7 @@ pub enum FrameBufferError {
 }
 
 #[derive(Clone, Debug)]
-struct FrameBuf {
+pub struct FrameBuf {
     width: usize,
     height: usize,
     bytes_per_pixel: usize,
@@ -34,8 +34,21 @@ struct FrameBuf {
 }
 
 impl FrameBuf {
-    fn new(graphic_info: &GraphicInfo) -> Self {
+    const fn new() -> Self {
         Self {
+            width: 0,
+            height: 0,
+            bytes_per_pixel: 0,
+            stride: 0,
+            pixel_format: PixelFormat::Bgr,
+            framebuf_addr: 0,
+            framebuf_size: 0,
+            write_pixel: write_pixel_bgr,
+        }
+    }
+
+    pub fn init(&mut self, graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
+        *self = Self {
             width: graphic_info.width,
             height: graphic_info.height,
             bytes_per_pixel: graphic_info.bytes_per_pixel,
@@ -47,7 +60,9 @@ impl FrameBuf {
                 PixelFormat::Rgb => write_pixel_rgb,
                 PixelFormat::Bgr => write_pixel_bgr,
             },
-        }
+        };
+        self.fill(bg_color)?;
+        Ok(())
     }
 
     fn write_pixel(&mut self, x: usize, y: usize, pixel: Pixel) -> Result<()> {
@@ -169,75 +184,46 @@ fn write_pixel_bgr(self_: &mut FrameBuf, x: usize, y: usize, mut pixel: Pixel) -
     Ok(())
 }
 
-fn lock_framebuf<'a>() -> Result<MutexGuard<'a, Option<FrameBuf>>> {
-    unsafe { FRAME_BUF.try_lock() }.ok_or(FrameBufferError::FrameBufferLockError.into())
-}
-
-pub fn init(graphic_info: &GraphicInfo, bg: RgbColor) -> Result<()> {
-    let mut frame_buf = FrameBuf::new(graphic_info);
-    frame_buf.fill(bg)?;
-    lock_framebuf()?.replace(frame_buf);
-    Ok(())
+pub fn frame_buf() -> Result<MutexGuard<'static, FrameBuf>> {
+    FRAME_BUF
+        .try_lock()
+        .ok_or(FrameBufferError::FrameBufferLockError.into())
 }
 
 pub fn write_pixel(x: usize, y: usize, pixel: Pixel) -> Result<()> {
-    lock_framebuf()?
-        .as_mut()
-        .ok_or(FrameBufferError::NotInitializedError)?
-        .write_pixel(x, y, pixel)?;
+    frame_buf()?.write_pixel(x, y, pixel)?;
     Ok(())
 }
 
 pub fn write_char(x: usize, y: usize, c: char, fg: RgbColor) -> Result<()> {
-    lock_framebuf()?
-        .as_mut()
-        .ok_or(FrameBufferError::NotInitializedError)?
-        .write_char(x, y, c, fg)?;
+    frame_buf()?.write_char(x, y, c, fg)?;
     Ok(())
 }
 
 pub fn write_string(x: usize, y: usize, s: &str, fg: RgbColor) -> Result<()> {
-    lock_framebuf()?
-        .as_mut()
-        .ok_or(FrameBufferError::NotInitializedError)?
-        .write_string(x, y, s, fg)?;
+    frame_buf()?.write_string(x, y, s, fg)?;
     Ok(())
 }
 
 pub fn fill(color: RgbColor) -> Result<()> {
-    lock_framebuf()?
-        .as_mut()
-        .ok_or(FrameBufferError::NotInitializedError)?
-        .fill(color)?;
+    frame_buf()?.fill(color)?;
     Ok(())
 }
 
 pub fn fill_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColor) -> Result<()> {
-    lock_framebuf()?
-        .as_mut()
-        .ok_or(FrameBufferError::NotInitializedError)?
-        .fill_rect(x, y, width, height, color)?;
+    frame_buf()?.fill_rect(x, y, width, height, color)?;
     Ok(())
 }
 
 pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColor) -> Result<()> {
-    lock_framebuf()?
-        .as_mut()
-        .ok_or(FrameBufferError::NotInitializedError)?
-        .draw_rect(x, y, width, height, color)?;
+    frame_buf()?.draw_rect(x, y, width, height, color)?;
     Ok(())
 }
 
 pub fn width() -> Result<usize> {
-    Ok(lock_framebuf()?
-        .as_mut()
-        .ok_or(FrameBufferError::NotInitializedError)?
-        .get_width())
+    Ok(frame_buf()?.get_width())
 }
 
 pub fn height() -> Result<usize> {
-    Ok(lock_framebuf()?
-        .as_mut()
-        .ok_or(FrameBufferError::NotInitializedError)?
-        .get_height())
+    Ok(frame_buf()?.get_height())
 }

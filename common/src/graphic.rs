@@ -140,19 +140,19 @@ impl From<RgbColor> for Pixel {
 pub struct RgbColor(u32);
 
 impl RgbColor {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(0x00000000)
     }
 
-    pub fn rgb(r: u8, g: u8, b: u8) -> Self {
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self(u32::from_be_bytes([r, g, b, 0x00]))
     }
 
-    pub fn get(&self) -> u32 {
+    pub const fn get(&self) -> u32 {
         self.0
     }
 
-    pub fn to_bgr(&mut self) {
+    pub const fn to_bgr(&mut self) {
         let r = ((self.0 & 0xff000000) >> 0x18) as u8;
         let g = ((self.0 & 0xff0000) >> 0x10) as u8;
         let b = ((self.0 & 0xff00) >> 0x8) as u8;
