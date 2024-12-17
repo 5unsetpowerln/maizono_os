@@ -1,14 +1,13 @@
 pub mod error;
-mod usb;
 
-use core::{arch::asm, num::NonZeroUsize};
+use core::{arch::asm, marker::PhantomData};
 
 use arrayvec::ArrayVec;
-use error::PciError;
 // use common::arrayvec::ArrayVec;
+use error::PciError;
 use spin::{Mutex, MutexGuard};
 
-use crate::{error::Result, printk};
+use crate::error::Result;
 
 /// Address of CONFIG_ADDRESS register in IO Address Space
 const CONFIG_ADDRESS_ADDRESS: u16 = 0x0cf8;
@@ -16,16 +15,7 @@ const CONFIG_ADDRESS_ADDRESS: u16 = 0x0cf8;
 const CONFIG_DATA_ADDRESS: u16 = 0x0cfc;
 
 const DEVICE_CAPACITY: usize = 32;
-type Devices = ArrayVec<Device, DEVICE_CAPACITY>;
-static mut DEVICES: Mutex<Option<Devices>> = Mutex::new(None);
-
-// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pub enum PciError {
-//     DeviceCapacityError,
-//     UninitializedError,
-//     DeviceLockError,
-//     BaseAddressRegisterIndexOutOfRangeError,
-// }
+static DEVICES: Mutex<Devices<DEVICE_CAPACITY>> = Mutex::new(Devices::new());
 
 #[derive(Clone, Copy, Debug)]
 pub struct Device {
@@ -57,6 +47,26 @@ impl Device {
 
     pub fn is_intel(&self) -> bool {
         self.vendor_id() == 0x8086
+    }
+
+    pub fn get_bus(&self) -> u8 {
+        self.bus
+    }
+
+    pub fn get_device(&self) -> u8 {
+        self.device
+    }
+
+    pub fn get_func(&self) -> u8 {
+        self.func
+    }
+
+    pub fn get_class_code(&self) -> ClassCode {
+        self.class_code
+    }
+
+    pub fn get_header_type(&self) -> u8 {
+        self.header_type
     }
 
     fn read_pci_config_space(&self, offset_in_pci_config_space: u8) -> u32 {
@@ -111,7 +121,7 @@ pub struct ClassCode {
 }
 
 impl ClassCode {
-    fn new(base: u8, sub: u8, interface: u8) -> Self {
+    const fn new(base: u8, sub: u8, interface: u8) -> Self {
         Self {
             base,
             sub,
@@ -130,92 +140,110 @@ impl ClassCode {
     fn is_match_all(&self, b: u8, s: u8, i: u8) -> bool {
         self.is_match_base_sub(b, s) && self.interface == i
     }
-}
 
-pub fn init() -> Result<()> {
-    let devices = ArrayVec::<Device, DEVICE_CAPACITY>::new();
-    lock_devices()?.replace(devices);
-    Ok(())
-}
-
-pub fn scan_all_bus() -> Result<()> {
-    let bus0_host_bridge_header_type = read_header_type(0, 0, 0);
-    if is_single_function_device(bus0_host_bridge_header_type) {
-        return scan_bus(0);
+    pub fn get_base(&self) -> u8 {
+        self.base
     }
 
-    for func in 0..8 {
-        if read_vendor_id(0, 0, func) == 0xffff {
-            continue;
+    pub fn get_sub(&self) -> u8 {
+        self.sub
+    }
+
+    pub fn get_interface(&self) -> u8 {
+        self.interface
+    }
+}
+
+pub struct Devices<'a, const CAP: usize> {
+    array: ArrayVec<Device, CAP>,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a, const CAP: usize> Devices<'a, CAP> {
+    const fn new() -> Self {
+        Self {
+            array: ArrayVec::<Device, CAP>::new_const(),
+            _marker: PhantomData,
         }
-        scan_bus(func)?;
     }
 
-    Ok(())
-}
-
-fn lock_devices<'a>() -> Result<MutexGuard<'a, Option<Devices>>> {
-    unsafe { DEVICES.try_lock() }.ok_or(PciError::DeviceLockError.into())
-}
-
-pub fn get_devices() -> Result<ArrayVec<Device, DEVICE_CAPACITY>> {
-    if let Some(devices) = lock_devices()?.as_ref() {
-        return Ok(devices.clone());
-    } else {
-        return Err(PciError::UninitializedError.into());
-    }
-}
-
-fn scan_bus(bus: u8) -> Result<()> {
-    for device in 0..32 {
-        if read_vendor_id(bus, device, 0) == 0xffff {
-            continue;
-        }
-        scan_device(bus, device)?;
-    }
-    Ok(())
-}
-
-fn scan_device(bus: u8, device: u8) -> Result<()> {
-    scan_function(bus, device, 0)?;
-
-    if is_single_function_device(read_header_type(bus, device, 0)) {
-        return Ok(());
+    pub fn as_ref_inner(&'a self) -> &'a ArrayVec<Device, CAP> {
+        &self.array
     }
 
-    for func in 1..8 {
-        if read_vendor_id(bus, device, func) == 0xffff {
-            continue;
-        }
-
-        scan_function(bus, device, func)?;
-    }
-    Ok(())
-}
-
-fn scan_function(bus: u8, device: u8, func: u8) -> Result<()> {
-    let header_type = read_header_type(bus, device, func);
-    let class_code = read_class_code(bus, device, func);
-
-    add_device(&Device::new(bus, device, func, header_type, &class_code))?;
-
-    if class_code.base == 0x06 && class_code.sub == 0x04 {
-        // standard PCI-PCI bridge
-        let bus_numbers = read_bus_numbers(bus, device, func);
-        let secondary_bus = (bus_numbers >> 8) & 0xff;
-        scan_bus(secondary_bus as u8)?;
-    }
-
-    Ok(())
-}
-
-fn add_device(device: &Device) -> Result<()> {
-    if let Some(devices) = lock_devices()?.as_mut() {
-        devices.push(device.clone());
+    /// Initialize devices. Scan all devices and store them.
+    pub fn init(&mut self) -> Result<()> {
+        self.scan_all_bus()?;
         Ok(())
-    } else {
-        Err(PciError::UninitializedError.into())
     }
+
+    #[inline]
+    fn add_device(&mut self, device: Device) {
+        self.array.push(device);
+    }
+
+    fn scan_all_bus(&mut self) -> Result<()> {
+        let bus0_host_bridge_header_type = read_header_type(0, 0, 0);
+        if is_single_function_device(bus0_host_bridge_header_type) {
+            return self.scan_bus(0);
+        }
+
+        for func in 0..8 {
+            if read_vendor_id(0, 0, func) == 0xffff {
+                continue;
+            }
+            self.scan_bus(func)?;
+        }
+
+        Ok(())
+    }
+
+    fn scan_bus(&mut self, bus: u8) -> Result<()> {
+        for device in 0..32 {
+            if read_vendor_id(bus, device, 0) == 0xffff {
+                continue;
+            }
+            self.scan_device(bus, device)?;
+        }
+        Ok(())
+    }
+
+    fn scan_device(&mut self, bus: u8, device: u8) -> Result<()> {
+        self.scan_function(bus, device, 0)?;
+
+        if is_single_function_device(read_header_type(bus, device, 0)) {
+            return Ok(());
+        }
+
+        for func in 1..8 {
+            if read_vendor_id(bus, device, func) == 0xffff {
+                continue;
+            }
+
+            self.scan_function(bus, device, func)?;
+        }
+        Ok(())
+    }
+
+    fn scan_function(&mut self, bus: u8, device: u8, func: u8) -> Result<()> {
+        let header_type = read_header_type(bus, device, func);
+        let class_code = read_class_code(bus, device, func);
+
+        self.add_device(Device::new(bus, device, func, header_type, &class_code));
+
+        if class_code.base == 0x06 && class_code.sub == 0x04 {
+            // standard PCI-PCI bridge
+            let bus_numbers = read_bus_numbers(bus, device, func);
+            let secondary_bus = (bus_numbers >> 8) & 0xff;
+            self.scan_bus(secondary_bus as u8)?;
+        }
+
+        Ok(())
+    }
+}
+
+pub fn devices() -> Result<MutexGuard<'static, Devices<'static, DEVICE_CAPACITY>>> {
+    DEVICES.try_lock().ok_or(PciError::DeviceLockError.into())
 }
 
 fn is_single_function_device(header_type: u8) -> bool {
@@ -303,89 +331,4 @@ fn io_in_32(addr: u16) -> u32 {
         )
     }
     data
-}
-
-pub fn xhci() -> Result<()> {
-    scan_all_bus()?;
-    let devices = get_devices()?;
-    let mut xhci_device_opt = None;
-    for device in devices.iter() {
-        if device.class_code.is_match_all(0x0c, 0x03, 0x30) {
-            xhci_device_opt.replace(device);
-            break;
-        }
-    }
-
-    if xhci_device_opt.is_none() {
-        printk!("no xHCI device");
-        return Ok(());
-    }
-
-    let xhci_device = xhci_device_opt.unwrap();
-    printk!(
-        "xHCI device: addr = {:X}:{:X}:{:X}",
-        xhci_device.bus,
-        xhci_device.device,
-        xhci_device.func
-    );
-
-    let xhc_base_addr = xhci_device.read_base_addr(0)?;
-    let xhc_mmio_base = xhc_base_addr & !(0xf as u64);
-    printk!("xhc mmio base: 0x{:X}", xhc_mmio_base);
-
-    let mapper = MemoryMapper();
-    printk!("initializing xhc...");
-    let mut controller = unsafe { usb::xhci::Controller::new(xhc_mmio_base, mapper) };
-    if let Err(e) = controller.init() {
-        printk!("failed to init the controller: {:#?}", e)
-    };
-    printk!("done.");
-    // init_host_controller(xhc_mmio_base);
-
-    // let a = xhci::Registers::
-
-    // xhc = new usb::xhci::RealController{mmio_base};
-
-    // if (auto err = xhc->Initialize(); err != usb::error::kSuccess)
-    // {
-    //     delete xhc;
-    //     printk("failed to initialize xHCI controller: %d\n", err);
-    //     return;
-    // }
-
-    // Configure MSI
-    // let bsp_local_apic_id = {
-    //     let ptr = (0xfee00020 as u64) as *const u32;
-    //     unsafe {
-    //         //
-    //         *ptr >> 24
-    //     }
-    // };
-    // printk!("bsp_local_apic_id: {}", bsp_local_apic_id);
-
-    // let msi_msg_addr = 0xfee00000 | (bsp_local_apic_id << 12);
-
-    Ok(())
-}
-
-// #[derive(Clone, Copy, Debug)]
-// pub struct MemoryMapper();
-
-// impl xhci::accessor::Mapper for MemoryMapper {
-//     unsafe fn map(&mut self, phys_start: usize, _bytes: usize) -> core::num::NonZeroUsize {
-//         NonZeroUsize::new_unchecked(phys_start)
-//     }
-
-//     fn unmap(&mut self, virt_start: usize, bytes: usize) {}
-// }
-
-#[derive(Clone, Copy, Debug)]
-pub struct MemoryMapper();
-
-impl xhci::accessor::Mapper for MemoryMapper {
-    unsafe fn map(&mut self, phys_start: usize, _bytes: usize) -> core::num::NonZeroUsize {
-        NonZeroUsize::new_unchecked(phys_start)
-    }
-
-    fn unmap(&mut self, virt_start: usize, bytes: usize) {}
 }

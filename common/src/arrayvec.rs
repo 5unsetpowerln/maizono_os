@@ -12,7 +12,7 @@ pub struct ArrayVec<T: Copy, const CAP: usize> {
 }
 
 impl<T: Copy, const CAP: usize> ArrayVec<T, CAP> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             array: [None; CAP],
             index: 0,

@@ -4,10 +4,7 @@ use spin::{mutex::MutexGuard, Mutex};
 use thiserror_no_std::Error;
 use uefi::mem::memory_map::{MemoryMap, MemoryMapOwned};
 
-use crate::{
-    memory_map::{is_available, UEFI_PAGE_SIZE},
-    printk,
-};
+use crate::memory_map::{is_available, UEFI_PAGE_SIZE};
 
 static MEMORY_MANAGER: Mutex<BitmapMemoryManager> = Mutex::new(BitmapMemoryManager::new());
 
@@ -88,7 +85,6 @@ impl BitmapMemoryManager {
     }
 
     fn mark_allocated(&mut self, first_frame_id: FrameID, count: usize) {
-        printk!("{}", count);
         for i in 0..count {
             self.set_bit(FrameID(first_frame_id.get() + i), true);
         }
@@ -129,6 +125,7 @@ impl BitmapMemoryManager {
                     break;
                 }
             }
+            // If there are `number_of_frame`-consecutive free frames, following condition is true.
             if i == number_of_frame {
                 self.mark_allocated(FrameID(start_frame_id), number_of_frame);
                 return Some(FrameID(start_frame_id));

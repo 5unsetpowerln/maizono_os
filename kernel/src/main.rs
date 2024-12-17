@@ -73,12 +73,30 @@ extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
         .unwrap()
         .init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200))
         .unwrap();
-
     segmentation::init();
     paging::init();
+    pci::devices()
+        .unwrap()
+        .init()
+        .unwrap_or_else(|err| printk!("{:#?}", err));
 
-    if let Err(err) = pci::init() {
-        printk!("{:#?}", err);
+    let devices = pci::devices().unwrap();
+    for (i, dev) in devices.as_ref_inner().iter().enumerate() {
+        // if i > 3 {
+        // break;
+        // }
+        if dev.is_intel() {
+            printk!(
+            "bus: 0x{:X}, device: 0x{:X}, func: 0x{:X}, header_type: 0x{:X}, class_code: 0x{:X}:0x{:X}:0x{:X}",
+            dev.get_bus(),
+            dev.get_device(),
+            dev.get_func(),
+            dev.get_header_type(),
+            dev.get_class_code().get_base(),
+            dev.get_class_code().get_sub(),
+            dev.get_class_code().get_interface(),
+        );
+        }
     }
 
     printk!("kernel_main: {}", main as *mut fn() as u64);
