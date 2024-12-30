@@ -23,6 +23,7 @@ use uefi::boot::ScopedProtocol;
 use uefi::helpers;
 use uefi::mem::memory_map::MemoryMap;
 use uefi::proto::console::gop::GraphicsOutput;
+use uefi::table::cfg::ACPI2_GUID;
 use uefi::{
     prelude::*,
     proto::media::file::{Directory, File, FileAttribute, FileMode, FileType},
@@ -34,6 +35,79 @@ const MEMMAP_DUMP_NAME: &CStr16 = cstr16!("memmap_dump");
 #[entry]
 fn efi_main() -> Status {
     main_inner()
+}
+
+fn main_inner() -> Status {
+    helpers::init().unwrap();
+
+    // create memmap dump
+    info!("creating memmap dump");
+    if let Err(e) = save_memmap_dump() {
+        print_error(&e);
+        panic!();
+    }
+
+    info!("opening gop");
+    let mut gop = match open_gop() {
+        Ok(g) => g,
+        Err(e) => {
+            info!("hello");
+            print_error(&Error::msg(e).context("Failed to open graphics-output-protocol."));
+            panic!("panicked.");
+        }
+    };
+    let graphic_info =
+        match GraphicInfo::from_gop(&mut gop) {
+            Ok(info) => info,
+            Err(err) => {
+                print_error(&Error::msg(err.msg()).context(
+                    "Failed to create common::GraphicInfo to give to the kernel from gop.",
+                ));
+                panic!("panicked");
+            }
+        };
+    info!("frame_buffer_addr: 0x{:X}", graphic_info.frame_buffer_addr);
+
+    info!("loading kernel");
+    let kernel = match load_kernel() {
+        Ok(addr) => addr,
+        Err(err) => {
+            print_error(&err.context("Failed to load the kernel"));
+            panic!("panicked");
+        }
+    };
+    info!("kernel_entry_point: 0x{:X}", kernel.entry_point_addr());
+    info!("kernel_base_addr: 0x{:X}", kernel.base_addr());
+    debug!("main_inner: 0x{:X}", main_inner as *const fn() as u64);
+    // debug!(
+    //     "0x{:X} == 0x{:X} = {}",
+    //     kernel.entry_point as *const fn() as u64,
+    //     kernel.entry_point_addr,
+    //     kernel.entry_point as *const fn() as u64 == kernel.entry_point_addr
+    // );
+
+    info!("finding rsdp addr.");
+    let rsdp_addr = find_rsdp();
+    info!("rsdp_addr: {:?}", rsdp_addr);
+
+    info!("exiting boot services.");
+    let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA) };
+
+    let boot_info = BootInfo::new(graphic_info, memory_map, rsdp_addr);
+    kernel.run(&boot_info);
+
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+fn find_rsdp() -> Option<u64> {
+    system::with_config_table(|table| {
+        let acpi_entry = table.iter().find(|e| e.guid == ACPI2_GUID);
+        acpi_entry.map(|e| e.address as u64)
+    })
 }
 
 fn open_root_dir(image: Handle) -> Directory {
@@ -135,81 +209,6 @@ fn open_gop() -> Result<ScopedProtocol<GraphicsOutput>> {
     })?;
     Ok(gop)
 }
-
-// fn find_rsdp() {
-//     boot::
-// }
-
-fn main_inner() -> Status {
-    helpers::init().unwrap();
-
-    // create memmap dump
-    info!("creating memmap dump");
-    if let Err(e) = save_memmap_dump() {
-        print_error(&e);
-        panic!();
-    }
-
-    info!("opening gop");
-    let mut gop = match open_gop() {
-        Ok(g) => g,
-        Err(e) => {
-            info!("hello");
-            print_error(&Error::msg(e).context("Failed to open graphics-output-protocol."));
-            panic!("panicked.");
-        }
-    };
-    let graphic_info =
-        match GraphicInfo::from_gop(&mut gop) {
-            Ok(info) => info,
-            Err(err) => {
-                print_error(&Error::msg(err.msg()).context(
-                    "Failed to create common::GraphicInfo to give to the kernel from gop.",
-                ));
-                panic!("panicked");
-            }
-        };
-    info!("frame_buffer_addr: 0x{:X}", graphic_info.frame_buffer_addr);
-
-    info!("loading kernel");
-    let kernel = match load_kernel() {
-        Ok(addr) => addr,
-        Err(err) => {
-            print_error(&err.context("Failed to load the kernel"));
-            panic!("panicked");
-        }
-    };
-    info!("kernel_entry_point: 0x{:X}", kernel.entry_point_addr());
-    info!("kernel_base_addr: 0x{:X}", kernel.base_addr());
-    debug!("main_inner: 0x{:X}", main_inner as *const fn() as u64);
-    // debug!(
-    //     "0x{:X} == 0x{:X} = {}",
-    //     kernel.entry_point as *const fn() as u64,
-    //     kernel.entry_point_addr,
-    //     kernel.entry_point as *const fn() as u64 == kernel.entry_point_addr
-    // );
-
-    info!("exiting boot services.");
-    let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA) };
-
-    let boot_info = BootInfo::new(graphic_info, memory_map);
-    kernel.run(&boot_info);
-
-    loop {
-        unsafe {
-            asm!("hlt");
-        }
-    }
-}
-
-// #[inline(always)]
-// pub fn get_rip() -> u64 {
-//     let mut rip: u64 = 0;
-//     unsafe {
-//         asm!("lea rax, rip", out("rax") rip);
-//     }
-//     rip
-// }
 
 fn print_error(err: &Error) {
     error!("{:#?}", err);

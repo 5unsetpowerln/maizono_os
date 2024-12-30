@@ -7,13 +7,19 @@ use crate::graphic::GraphicInfo;
 pub struct BootInfo {
     pub graphic_info: GraphicInfo,
     pub memory_map: MemoryMapOwned,
+    pub rsdp_addr: Option<u64>,
 }
 
 impl BootInfo {
-    pub fn new(graphic_info: GraphicInfo, memory_map: MemoryMapOwned) -> Self {
+    pub fn new(
+        graphic_info: GraphicInfo,
+        memory_map: MemoryMapOwned,
+        rsdp_addr: Option<u64>,
+    ) -> Self {
         Self {
             graphic_info,
             memory_map,
+            rsdp_addr,
         }
     }
 }

@@ -88,18 +88,15 @@ fn main(boot_info: &BootInfo) -> ! {
     interrupts::init_idt();
     x86_64::instructions::interrupts::enable();
     timer::init_local_apic_timer();
-    timer::start_local_apic_timer();
+    // timer::start_local_apic_timer();
+
+    let rsdp_addr = boot_info.rsdp_addr.unwrap_or_else(|| {
+        printk!("rsdp_addr isn't found. The kernel will panic.");
+        panic!();
+    });
+    printk!("rsdp_addr: 0x{:X}", rsdp_addr);
 
     phys_mem_manager::mem_manager().init(&boot_info.memory_map);
-
-    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
-    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
-    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
-    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
-    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
-    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
-    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
-    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
 
     printk!("It didn't crash.");
     loop {

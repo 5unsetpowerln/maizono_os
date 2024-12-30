@@ -2,7 +2,7 @@ use core::ptr::write_volatile;
 use spin::Lazy;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
-use crate::printk;
+use crate::{printk, timer};
 
 static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     let mut idt = InterruptDescriptorTable::new();
@@ -34,7 +34,7 @@ pub fn init_idt() {
 // }
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    printk!("A");
+    timer::local_apic_timer_on_interrupt();
     notify_end_of_interrupt();
 }
 

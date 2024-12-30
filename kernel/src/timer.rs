@@ -1,5 +1,7 @@
 use core::ptr::write_volatile;
 
+use spin::Mutex;
+
 use crate::interrupts;
 
 const COUNT_MAX: u32 = 0xffffffff;
@@ -7,6 +9,34 @@ const LVT_TIMER: *mut u32 = 0xfee00320 as *mut u32;
 const INITIAL_COUNT: *mut u32 = 0xfee00380 as *mut u32;
 const CURRENT_COUNT: *mut u32 = 0xfee00390 as *mut u32;
 const DIVIDE_CONFIG: *mut u32 = 0xfee003e0 as *mut u32;
+
+static TIMER_MANAGER: Mutex<TimerManager> = Mutex::new(TimerManager::new());
+
+struct TimerManager {
+    tick: u64,
+}
+
+impl TimerManager {
+    const fn new() -> Self {
+        Self { tick: 0 }
+    }
+
+    fn tick(&mut self) {
+        self.tick += 1;
+    }
+
+    fn current_tick(&self) -> u64 {
+        self.tick
+    }
+}
+
+pub fn local_apic_timer_on_interrupt() {
+    TIMER_MANAGER.lock().tick();
+}
+
+pub fn current_tick() -> u64 {
+    TIMER_MANAGER.lock().current_tick()
+}
 
 /// - divide: 1:1
 /// - not-masked
@@ -18,8 +48,7 @@ pub fn init_local_apic_timer() {
             LVT_TIMER,
             (0b010 << 16) | interrupts::InterruptVector::LocalAPICTimer as u32,
         ); // not-masked, periodic
-        write_volatile(INITIAL_COUNT, COUNT_MAX);
-        // write_volatile(INITIAL_COUNT, 0xffff);
+        write_volatile(INITIAL_COUNT, 0x1000000);
     }
 }
 
