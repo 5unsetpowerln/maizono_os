@@ -1,16 +1,22 @@
 #![no_std]
 #![no_main]
 #![feature(inherent_associated_types)]
+#![feature(abi_x86_interrupt)]
+#![feature(custom_test_frameworks)]
 
 // extern crate alloc;
 
+mod acpi;
 mod error;
+mod gdt;
 mod graphic;
+mod interrupts;
 mod memory_map;
 mod paging;
 mod pci;
 mod phys_mem_manager;
-mod segmentation;
+mod ps2_mouse;
+mod timer;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -40,7 +46,8 @@ impl KernelStack {
 }
 
 fn switch_to_kernel_stack(
-    new_entry: extern "sysv64" fn(&BootInfo) -> !,
+    // new_entry: extern "sysv64" fn(&BootInfo) -> !,
+    new_entry: fn(&BootInfo) -> !,
     boot_info: &BootInfo,
 ) -> ! {
     unsafe {
@@ -58,13 +65,12 @@ fn switch_to_kernel_stack(
 }
 
 /// kernel entrypoint
-#[no_mangle]
 #[export_name = "_start"]
 pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
     switch_to_kernel_stack(main, boot_info);
 }
 
-extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
+fn main(boot_info: &BootInfo) -> ! {
     frame_buffer::frame_buf()
         .unwrap()
         .init(&boot_info.graphic_info, RgbColor::from(0x28282800))
@@ -73,40 +79,29 @@ extern "sysv64" fn main(boot_info: &BootInfo) -> ! {
         .unwrap()
         .init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200))
         .unwrap();
-    segmentation::init();
+    gdt::init();
     paging::init();
     pci::devices()
         .unwrap()
         .init()
         .unwrap_or_else(|err| printk!("{:#?}", err));
-
-    let devices = pci::devices().unwrap();
-    for (i, dev) in devices.as_ref_inner().iter().enumerate() {
-        // if i > 3 {
-        // break;
-        // }
-        if dev.is_intel() {
-            printk!(
-            "bus: 0x{:X}, device: 0x{:X}, func: 0x{:X}, header_type: 0x{:X}, class_code: 0x{:X}:0x{:X}:0x{:X}",
-            dev.get_bus(),
-            dev.get_device(),
-            dev.get_func(),
-            dev.get_header_type(),
-            dev.get_class_code().get_base(),
-            dev.get_class_code().get_sub(),
-            dev.get_class_code().get_interface(),
-        );
-        }
-    }
-
-    printk!("kernel_main: {}", main as *mut fn() as u64);
-    printk!("framebuffer width: {}", frame_buffer::width().unwrap());
-    printk!("framebuffer height: {}", frame_buffer::height().unwrap());
+    interrupts::init_idt();
+    x86_64::instructions::interrupts::enable();
+    timer::init_local_apic_timer();
+    timer::start_local_apic_timer();
 
     phys_mem_manager::mem_manager().init(&boot_info.memory_map);
 
-    printk!("hello");
+    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
+    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
+    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
+    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
+    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
+    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
+    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
+    // printk!("0x{:X}", timer::local_apic_timer_elapsed());
 
+    printk!("It didn't crash.");
     loop {
         unsafe { asm!("hlt") }
     }

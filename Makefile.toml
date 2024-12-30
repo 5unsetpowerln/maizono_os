@@ -40,8 +40,8 @@ command = "qemu-system-x86_64"
 args = [
     "-enable-kvm",
 
-    # "-smp",
-    # "4",
+    "-smp",
+    "4",
 
     "-m",
     # "2G",

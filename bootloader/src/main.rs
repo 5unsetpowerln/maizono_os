@@ -136,6 +136,10 @@ fn open_gop() -> Result<ScopedProtocol<GraphicsOutput>> {
     Ok(gop)
 }
 
+// fn find_rsdp() {
+//     boot::
+// }
+
 fn main_inner() -> Status {
     helpers::init().unwrap();
 
