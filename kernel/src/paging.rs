@@ -87,28 +87,40 @@ impl DerefMut for PageDirectory {
 // static PAGE_DIR_PTR_TABLE: Mutex<PageDirectoryPointerTable> =
 //     Mutex::new(PageDirectoryPointerTable::new());
 // static PAGE_DIR: Mutex<PageDirectory> = Mutex::new(PageDirectory::new());
-static mut PAGE_MAP_LEVEL4_TABLE: PageMapLevel4Table = PageMapLevel4Table::new();
-static mut PAGE_DIR_PTR_TABLE: PageDirectoryPointerTable = PageDirectoryPointerTable::new();
-static mut PAGE_DIR: PageDirectory = PageDirectory::new();
+static PAGE_MAP_LEVEL4_TABLE: Mutex<PageMapLevel4Table> = Mutex::new(PageMapLevel4Table::new());
+static PAGE_DIR_PTR_TABLE: Mutex<PageDirectoryPointerTable> =
+    Mutex::new(PageDirectoryPointerTable::new());
+static PAGE_DIR: Mutex<PageDirectory> = Mutex::new(PageDirectory::new());
 
 pub fn init() {
-    unsafe {
-        PAGE_MAP_LEVEL4_TABLE[0] = PAGE_DIR_PTR_TABLE.as_ptr() as u64 | 0x003;
-    }
+    let mut page_map_level4_table = PAGE_MAP_LEVEL4_TABLE.lock();
+    let mut page_dir_ptr_table = PAGE_DIR_PTR_TABLE.lock();
+    let mut page_dir = PAGE_DIR.lock();
 
-    unsafe {
-        for i in 0..PAGE_DIR.len() {
-            PAGE_DIR_PTR_TABLE[i] = PAGE_DIR[i].as_ptr() as u64 | 0x003;
-            for j in 0..PAGE_DIR.len_inner() {
-                PAGE_DIR[i][j] = (i * PAGE_SIZE_1G + j * PAGE_SIZE_2M | 0x083) as u64
-            }
+    // unsafe {
+    page_map_level4_table[0] = (&*page_dir_ptr_table).as_ptr() as u64 | 0x003;
+    // PAGE_MAP_LEVEL4_TABLE[0] = PAGE_DIR_PTR_TABLE.as_ptr() as u64 | 0x003;
+    // }
+
+    // unsafe {
+    for i in 0..page_dir.len() {
+        page_dir_ptr_table[i] = page_dir[i].as_ptr() as u64 | 0x003;
+        for j in 0..page_dir.len_inner() {
+            page_dir[i][j] = (i * PAGE_SIZE_1G + j * PAGE_SIZE_2M | 0x083) as u64;
         }
     }
+    // for i in 0..PAGE_DIR.len() {
+    //     PAGE_DIR_PTR_TABLE[i] = PAGE_DIR[i].as_ptr() as u64 | 0x003;
+    //     for j in 0..PAGE_DIR.len_inner() {
+    //         PAGE_DIR[i][j] = (i * PAGE_SIZE_1G + j * PAGE_SIZE_2M | 0x083) as u64
+    //     }
+    // }
+    // }
 
     unsafe {
         asm!(
             "mov cr3, {}",
-            in(reg) PAGE_MAP_LEVEL4_TABLE.as_ptr() as u64
+            in(reg) &*page_map_level4_table
         );
     }
 }

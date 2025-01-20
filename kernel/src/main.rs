@@ -3,10 +3,13 @@
 #![feature(inherent_associated_types)]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
+#![feature(const_mut_refs)]
 
 // extern crate alloc;
 
 mod acpi;
+mod apic;
+mod arch;
 mod error;
 mod gdt;
 mod graphic;
@@ -15,11 +18,11 @@ mod memory_map;
 mod paging;
 mod pci;
 mod phys_mem_manager;
-mod ps2_mouse;
-mod timer;
+mod ps2;
+// mod timer;
 
-use core::arch::asm;
 use core::panic::PanicInfo;
+use core::{arch::asm, ptr::read_unaligned};
 
 use common::{boot::BootInfo, graphic::RgbColor};
 use graphic::{
@@ -65,7 +68,7 @@ fn switch_to_kernel_stack(
 }
 
 /// kernel entrypoint
-#[export_name = "_start"]
+#[unsafe(no_mangle)]
 pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
     switch_to_kernel_stack(main, boot_info);
 }
@@ -85,16 +88,20 @@ fn main(boot_info: &BootInfo) -> ! {
         .unwrap()
         .init()
         .unwrap_or_else(|err| printk!("{:#?}", err));
-    interrupts::init_idt();
-    x86_64::instructions::interrupts::enable();
-    timer::init_local_apic_timer();
-    // timer::start_local_apic_timer();
 
     let rsdp_addr = boot_info.rsdp_addr.unwrap_or_else(|| {
-        printk!("rsdp_addr isn't found. The kernel will panic.");
+        printk!("RSDP adderss wan't found. The kernel will panic.");
         panic!();
     });
-    printk!("rsdp_addr: 0x{:X}", rsdp_addr);
+    printk!("rsdp_addr: 0x{:X}", rsdp_addr.get());
+
+    unsafe { acpi::init(rsdp_addr) };
+    // timer::init_local_apic_timer();
+    // timer::start_local_apic_timer();
+
+    ps2::init();
+    interrupts::init();
+    x86_64::instructions::interrupts::enable();
 
     phys_mem_manager::mem_manager().init(&boot_info.memory_map);
 
@@ -105,6 +112,10 @@ fn main(boot_info: &BootInfo) -> ! {
 }
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+fn panic(info: &PanicInfo) -> ! {
+    printk!("[panic]");
+    printk!("{}", info);
+    loop {
+        unsafe { asm!("hlt") }
+    }
 }

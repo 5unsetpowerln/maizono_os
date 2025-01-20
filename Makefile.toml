@@ -53,17 +53,17 @@ args = [
     "-drive",
     "format=raw,file=${BUILD}/${DISK_IMAGE_NAME}",
 
-    "--device",
-    "qemu-xhci,id=xhci",
+    # "--device",
+    # "qemu-xhci,id=xhci",
 
-    "--device",
-    "usb-mouse",
+    # "--device",
+    # "usb-mouse",
 
-    "--device",
-    "usb-kbd",
+    # "--device",
+    # "usb-kbd",
 
-    "--device",
-    "usb-tablet",
+    # "--device",
+    # "usb-tablet",
 
     "--monitor",
     "stdio",

@@ -17,7 +17,7 @@ use super::{
 const ROWS: usize = 25;
 const COLUMNS: usize = 150;
 
-static CONSOLE: Mutex<Console> = Mutex::new(Console::new());
+static CONSOLE: Mutex<Console> = Mutex::new(Console::new_empty());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ConsoleError {
@@ -43,23 +43,7 @@ impl fmt::Write for Console {
 }
 
 impl Console {
-    // fn new(bg_color: RgbColor, fg_color: RgbColor) -> Result<Self> {
-    //     frame_buffer::fill_rect(
-    //         0,
-    //         0,
-    //         COLUMNS * CHARACTER_WIDTH,
-    //         ROWS * CHARACTER_HEIGHT,
-    //         bg_color,
-    //     )?;
-    //     Ok(Self {
-    //         buffer: [['\x00'; COLUMNS]; ROWS],
-    //         bg_color,
-    //         fg_color,
-    //         cursor_row: 0,
-    //         cursor_column: 0,
-    //     })
-    // }
-    const fn new() -> Self {
+    const fn new_empty() -> Self {
         Self {
             buffer: [['\x00'; COLUMNS]; ROWS],
             bg_color: RgbColor::rgb(0x28, 0x28, 0x28),

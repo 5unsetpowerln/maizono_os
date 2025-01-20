@@ -1,7 +1,8 @@
 [package]
 name = "kernel"
 version = "0.1.0"
-edition = "2021"
+# edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -16,7 +17,6 @@ uefi = "0.32.0"
 modular-bitfield = "0.11.2"
 x86_64 = "0.15.2"
 static_assertions = "1.1.0"
-ps2-mouse = "0.1.4"
-pic8259 = "0.11.0"
 bitfield = "0.17.0"
 acpi = { version = "5.1.0", default-features = false }
+# ps2 = "0.2.0"

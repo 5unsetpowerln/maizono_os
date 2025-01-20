@@ -1,9 +1,10 @@
 [package]
 name = "common"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
+acpi = { version = "5.1.0", default-features = false }
 bootloader_api = "0.11.7"
 uefi = { version = "0.32.0", features = [
     # "global_allocator"

@@ -1,45 +1,44 @@
-use crate::error::Result;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum AddressError {
-    AddressNotAlignedError,
+#[derive(Debug, Copy, Clone)]
+pub struct PhysPtr {
+    ptr: u64,
 }
-impl AddressError {
-    pub fn msg(&self) -> &'static str {
-        match *self {
-            Self::AddressNotAlignedError => "The address is not 64 byte aligned.",
+
+impl PhysPtr {
+    pub const fn null() -> Self {
+        Self { ptr: 0 }
+    }
+
+    pub fn from_ref<T>(ref_: &T) -> Self {
+        Self {
+            ptr: ref_ as *const T as u64,
         }
     }
-}
 
-#[derive(Clone, Copy, Debug)]
-pub struct AlignedAddress<const SIZE: usize>(u64);
-impl<const SIZE: usize> AlignedAddress<SIZE> {
-    pub fn new(addr: u64) -> Result<Self> {
-        if addr as usize % SIZE == 0 {
-            Ok(Self(addr))
-        } else {
-            Err(AddressError::AddressNotAlignedError.into())
-        }
+    pub fn from_ptr<T>(ptr: *const T) -> Self {
+        Self { ptr: ptr as u64 }
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.ptr == 0
+    }
+
+    pub fn ptr<T>(&self) -> *const T {
+        self.ptr as *const T
+    }
+
+    pub fn mut_ptr<T>(&self) -> *mut T {
+        self.ptr as *mut T
+    }
+
+    pub unsafe fn ref_<T>(&self) -> &T {
+        &*self.ptr()
     }
 
     pub fn get(&self) -> u64 {
-        self.0
+        self.ptr
+    }
+
+    pub fn set(&mut self, ptr: u64) {
+        self.ptr = ptr;
     }
 }
-
-pub type AlignedAddress64 = AlignedAddress<64>;
-
-// #[derive(Clone, Copy, Debug)]
-// pub struct AlignedAddress64(u64);
-// impl AlignedAddress64 {
-//     pub fn new(addr: u64) -> Result<Self> {
-//         if addr % 64 == 0 {
-//             Ok(Self(addr))
-//         } else {
-//             Err(AddressError::AddressNotAlignedError.into())
-//         }
-//     }
-
-//     pub fn get()
-// }

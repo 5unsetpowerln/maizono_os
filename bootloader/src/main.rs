@@ -12,6 +12,7 @@ use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
 use boot::MemoryType;
+use common::address::PhysPtr;
 use common::boot::BootInfo;
 use common::graphic::GraphicInfo;
 use kernel::load_kernel;
@@ -103,10 +104,10 @@ fn main_inner() -> Status {
     }
 }
 
-fn find_rsdp() -> Option<u64> {
+fn find_rsdp() -> Option<PhysPtr> {
     system::with_config_table(|table| {
         let acpi_entry = table.iter().find(|e| e.guid == ACPI2_GUID);
-        acpi_entry.map(|e| e.address as u64)
+        acpi_entry.map(|e| PhysPtr::from_ptr(e.address))
     })
 }
 

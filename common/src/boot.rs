@@ -1,20 +1,18 @@
-use core::ops::Deref;
-
 use uefi::mem::memory_map::MemoryMapOwned;
 
-use crate::graphic::GraphicInfo;
+use crate::{address::PhysPtr, graphic::GraphicInfo};
 
 pub struct BootInfo {
     pub graphic_info: GraphicInfo,
     pub memory_map: MemoryMapOwned,
-    pub rsdp_addr: Option<u64>,
+    pub rsdp_addr: Option<PhysPtr>,
 }
 
 impl BootInfo {
     pub fn new(
         graphic_info: GraphicInfo,
         memory_map: MemoryMapOwned,
-        rsdp_addr: Option<u64>,
+        rsdp_addr: Option<PhysPtr>,
     ) -> Self {
         Self {
             graphic_info,
@@ -23,28 +21,6 @@ impl BootInfo {
         }
     }
 }
-
-// pub struct MemoryMap(MemoryMapOwned);
-
-// impl MemoryMap {
-//     pub fn new(memmap: MemoryMapOwned) -> Self {
-//         Self(memmap)
-//     }
-// }
-
-// impl Deref for MemoryMap {
-//     type Target = MemoryMapOwned;
-
-//     fn deref(&self) -> &Self::Target {
-//         &self.0
-//     }
-// }
-
-// impl From<MemoryMapOwned> for MemoryMap {
-//     fn from(value: MemoryMapOwned) -> Self {
-//         Self(value)
-//     }
-// }
 
 pub struct Kernel {
     base_addr: u64,
