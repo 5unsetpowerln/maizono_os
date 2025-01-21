@@ -1,6 +1,8 @@
 use spin::Mutex;
 use x86_64::instructions::port::{Port, PortWriteOnly};
 
+use crate::kprintln;
+
 use super::{
     controller::{Controller, ControllerError},
     keyboard::Response,
@@ -24,6 +26,7 @@ impl From<ControllerError> for MouseError {
 
 #[derive(Debug)]
 enum Command {
+    EnableDataReporting = 0xf4,
     ResetAndSelfTest = 0xff,
 }
 
@@ -76,6 +79,11 @@ impl<'a> Mouse<'a> {
             }
         }
 
+        Ok(())
+    }
+
+    pub unsafe fn enable_data_reporting(&mut self) -> Result<()> {
+        unsafe { self.write_command(Command::EnableDataReporting, None) }?;
         Ok(())
     }
 

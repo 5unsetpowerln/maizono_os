@@ -141,7 +141,15 @@ pub fn console() -> Result<MutexGuard<'static, Console>> {
 macro_rules! kprintln {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
+        crate::graphic::console::console().unwrap().write_fmt(core::format_args!($($arg)*)).unwrap();
         crate::graphic::console::println("").unwrap();
+    }};
+}
+
+#[macro_export]
+macro_rules! kprint {
+    ($($arg:tt)*) => {{
+        use core::fmt::Write;
         crate::graphic::console::console().unwrap().write_fmt(core::format_args!($($arg)*)).unwrap();
     }};
 }

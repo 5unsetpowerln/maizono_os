@@ -31,17 +31,9 @@ pub fn init() {
     config_byte.set_first_port_translation(false);
     // check that the clock signal is enabled by clearing bit 4.
     config_byte.set_first_port_clock(false);
-    kprintln!(
-        "controller config byte bit 0, 4, 6 is cleared: 0x{:X}",
-        config_byte.get()
-    );
     controller
         .write_config_byte(config_byte)
         .expect("Failed to write to the PS/2 controller config byte.");
-    kprintln!(
-        "controller config byte bit 0, 4, 6 is cleared: 0x{:X}",
-        controller.read_config_byte().unwrap().get()
-    );
 
     // Step 6: Perform Controller Self Test
     controller
@@ -54,10 +46,6 @@ pub fn init() {
     controller
         .write_config_byte(config_byte)
         .expect("Failed to write to the PS/2 controller config byte.");
-    kprintln!(
-        "controller config byte bit 0, 4, 6 is cleared: 0x{:X}",
-        controller.read_config_byte().unwrap().get()
-    );
 
     // Step 7: Determine If There Are 2 Channels
     let has_second_port = {
@@ -79,19 +67,10 @@ pub fn init() {
             // clear bits 1 and 5 of the Controller Configuration Byte to disable IRQs and enable the clock for port 2
             config_byte.set_second_port_interrupt(false);
             config_byte.set_second_port_clock(false);
-            kprintln!(
-                "[A] ps/2 controller config byte: 0x{:X}",
-                config_byte.get().clone()
-            );
 
             controller
                 .write_config_byte(config_byte)
                 .expect("Failed to write to the PS/2 controller config byte.");
-
-            kprintln!(
-                "[A] ps/2 controller config byte: 0x{:X}",
-                controller.read_config_byte().unwrap().get()
-            );
         }
 
         has_second_port
@@ -116,18 +95,20 @@ pub fn init() {
         controller.enable_second_port();
         config_byte.set_second_port_interrupt(true);
     }
-    kprintln!("[B] ps/2 controller config byte: 0x{:X}", config_byte.get());
     controller
         .write_config_byte(config_byte)
         .expect("Failed to write to the PS/2 controller config byte.");
-    kprintln!(
-        "[B] ps/2 controller config byte: 0x{:X}",
-        controller.read_config_byte().unwrap().get()
-    );
 
     // Step 10: Reset Devices
     unsafe { controller.keyboard().reset_and_self_test() }
         .unwrap_or_else(|err| panic!("failed to reset the keyboard: {:?}", err));
     unsafe { controller.mouse().reset_and_self_test() }
         .unwrap_or_else(|err| panic!("failed to reset the mouse: {:?}", err));
+
+    // enable mouse's data-reporting
+    if second_port_works {
+        unsafe { controller.mouse().enable_data_reporting() }.unwrap_or_else(|err| {
+            panic!("failed to enable data-reporting of the mouse: {:?}", err)
+        });
+    }
 }
