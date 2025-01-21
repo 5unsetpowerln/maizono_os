@@ -7,10 +7,10 @@ use core::arch::asm;
 
 extern crate alloc;
 use alloc::format;
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Error;
 use anyhow::Result;
+use anyhow::anyhow;
+use anyhow::bail;
 use boot::MemoryType;
 use common::address::PhysPtr;
 use common::boot::BootInfo;
@@ -26,12 +26,10 @@ use uefi::mem::memory_map::MemoryMap;
 use uefi::proto::console::gop::GraphicsOutput;
 use uefi::table::cfg::ACPI2_GUID;
 use uefi::{
+    CStr16,
     prelude::*,
     proto::media::file::{Directory, File, FileAttribute, FileMode, FileType},
-    CStr16,
 };
-
-const MEMMAP_DUMP_NAME: &CStr16 = cstr16!("memmap_dump");
 
 #[entry]
 fn efi_main() -> Status {
@@ -40,13 +38,6 @@ fn efi_main() -> Status {
 
 fn main_inner() -> Status {
     helpers::init().unwrap();
-
-    // create memmap dump
-    info!("creating memmap dump");
-    if let Err(e) = save_memmap_dump() {
-        print_error(&e);
-        panic!();
-    }
 
     info!("opening gop");
     let mut gop = match open_gop() {
@@ -80,12 +71,6 @@ fn main_inner() -> Status {
     info!("kernel_entry_point: 0x{:X}", kernel.entry_point_addr());
     info!("kernel_base_addr: 0x{:X}", kernel.base_addr());
     debug!("main_inner: 0x{:X}", main_inner as *const fn() as u64);
-    // debug!(
-    //     "0x{:X} == 0x{:X} = {}",
-    //     kernel.entry_point as *const fn() as u64,
-    //     kernel.entry_point_addr,
-    //     kernel.entry_point as *const fn() as u64 == kernel.entry_point_addr
-    // );
 
     info!("finding rsdp addr.");
     let rsdp_addr = find_rsdp();
@@ -150,55 +135,6 @@ fn file_info_size(file_name: &CStr16) -> usize {
         + modification_time_size
         + attribute_size
         + file_name_size
-}
-
-fn save_memmap_dump() -> Result<()> {
-    let memmap = uefi::boot::memory_map(MemoryType::LOADER_DATA)
-        .map_err(|e| Error::msg(e).context("Failed to get memory map"))?;
-
-    let mut root_dir = open_root_dir(boot::image_handle());
-    let mut memmap_file = match root_dir
-        .open(
-            MEMMAP_DUMP_NAME,
-            FileMode::CreateReadWrite,
-            FileAttribute::empty(),
-        )
-        .map_err(|e| Error::msg(e).context("Failed to open memmap file"))?
-        .into_type()
-        .map_err(|e| {
-            Error::msg(e).context(
-                "Failed to make memmap file handler into file type (regular file or directory).",
-            )
-        })? {
-        FileType::Regular(f) => f,
-        FileType::Dir(_d) => {
-            bail!(anyhow!(
-                "{} was directory. It must be a regular file.",
-                MEMMAP_DUMP_NAME
-            ))
-        }
-    };
-
-    memmap_file
-        .write(b"index, type, type(name), physical_start, number of pages, attribute\n")
-        .map_err(|e| Error::msg(e).context("Failed to write data to memmap dump file"))?;
-    for (i, d) in memmap.entries().enumerate() {
-        let line = format!(
-            "{}, 0x{:X}, {:?}, 0x{:08X}, 0x{:X}, 0x{:X}\n",
-            i,
-            d.ty.0,
-            d.ty,
-            d.phys_start,
-            d.page_count,
-            d.att.bits() & 0xfffff
-        );
-        memmap_file
-            .write(line.as_bytes())
-            .map_err(|e| Error::msg(e).context("Failed to write data to memmap dump file"))?;
-    }
-    memmap_file.close();
-
-    Ok(())
 }
 
 fn open_gop() -> Result<ScopedProtocol<GraphicsOutput>> {
