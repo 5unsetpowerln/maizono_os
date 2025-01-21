@@ -1,4 +1,5 @@
 use core::{
+    ascii,
     fmt::{self},
     str,
 };
@@ -25,10 +26,46 @@ pub enum ConsoleError {
     UninitializedError,
     #[error("Failed to lock the console.")]
     ConsoleLockError,
+    #[error("The number of characters in the line overflowed the capacity.")]
+    LineLengthOverflow,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Line<const CAP: usize> {
+    chars: [ascii::Char; CAP],
+    length: usize,
+}
+
+impl<const CAP: usize> Line<CAP> {
+    pub fn new(chars: [ascii::Char; CAP], length: usize) -> Result<Self> {
+        if length > CAP {
+            return Err(ConsoleError::LineLengthOverflow.into());
+        }
+
+        return Ok(Self { chars, length });
+    }
+
+    pub const fn null() -> Self {
+        Self {
+            chars: [ascii::Char::from_u8(0).unwrap(); CAP],
+            length: 0,
+        }
+    }
+
+    pub fn push(&mut self, char: ascii::Char) -> Result<()> {
+        if self.length == CAP {
+            return Err(ConsoleError::LineLengthOverflow.into());
+        }
+
+        self.chars[self.length] = char;
+        self.length += 1;
+
+        Ok(())
+    }
 }
 
 pub struct Console {
-    buffer: [[char; COLUMNS]; ROWS],
+    buffer: [Line<COLUMNS>; ROWS],
     bg_color: RgbColor,
     fg_color: RgbColor,
     cursor_row: usize,
@@ -45,7 +82,7 @@ impl fmt::Write for Console {
 impl Console {
     const fn new_empty() -> Self {
         Self {
-            buffer: [['\x00'; COLUMNS]; ROWS],
+            buffer: [Line::<COLUMNS>::null(); ROWS],
             bg_color: RgbColor::rgb(0x28, 0x28, 0x28),
             fg_color: RgbColor::rgb(0x28, 0x28, 0x28),
             cursor_row: 0,
@@ -62,7 +99,7 @@ impl Console {
             bg_color,
         )?;
         *self = Self {
-            buffer: [['\x00'; COLUMNS]; ROWS],
+            buffer: [Line::<COLUMNS>::null(); ROWS],
             bg_color,
             fg_color,
             cursor_row: 0,
@@ -76,49 +113,47 @@ impl Console {
         if self.cursor_row < ROWS - 1 {
             self.cursor_row += 1;
         } else {
-            for y in 0..ROWS * font::CHARACTER_HEIGHT {
-                for x in 0..COLUMNS * font::CHARACTER_WIDTH {
-                    frame_buffer::write_pixel(x, y, self.bg_color.into())
-                        .expect("Failed to write a pixel.");
-                }
-            }
+            frame_buffer::fill_rect(
+                0,
+                0,
+                COLUMNS * CHARACTER_WIDTH,
+                ROWS * CHARACTER_HEIGHT,
+                self.bg_color.into(),
+            )
+            .expect("Failed to fill up the console.");
 
             for row in 0..ROWS - 1 {
                 self.buffer[row] = self.buffer[row + 1];
 
-                let mut s_buf = [0; COLUMNS * 4];
-                let mut pos = 0;
-
-                for c in self.buffer[row] {
-                    if c == '\x00' {
-                        break;
-                    }
-                    let c_bytes = c.encode_utf8(&mut s_buf[pos..]);
-                    pos += c_bytes.len();
+                let line = self.buffer[row];
+                for (i, c) in line.chars[0..line.length].iter().enumerate() {
+                    frame_buffer::write_char(
+                        font::CHARACTER_WIDTH * i,
+                        font::CHARACTER_HEIGHT * row,
+                        *c,
+                        self.fg_color,
+                    )
+                    .unwrap();
                 }
-
-                let s = str::from_utf8(&s_buf[..pos]).expect("utf-8 decode error");
-                frame_buffer::write_string(0, row * font::CHARACTER_HEIGHT, s, self.fg_color)
-                    .expect("Failed to write string.");
             }
 
-            *self.buffer.last_mut().expect("console buffer is empty") = ['\x00'; COLUMNS];
+            *self.buffer.last_mut().expect("console buffer is empty") = Line::<COLUMNS>::null();
         }
     }
 
     fn print(&mut self, s: &str) {
-        for c in s.chars() {
-            if c == '\n' {
+        for c in s.as_ascii().expect("Non ascii character is given.") {
+            if *c == ascii::Char::LineFeed {
                 self.new_line()
             } else if self.cursor_column < COLUMNS - 1 {
                 frame_buffer::write_char(
                     font::CHARACTER_WIDTH * self.cursor_column,
                     font::CHARACTER_HEIGHT * self.cursor_row,
-                    c,
+                    *c,
                     self.fg_color,
                 )
-                .expect("Failed to write a character.");
-                self.buffer[self.cursor_row][self.cursor_column] = c;
+                .unwrap();
+                self.buffer[self.cursor_row].push(*c).unwrap();
                 self.cursor_column += 1;
             }
         }

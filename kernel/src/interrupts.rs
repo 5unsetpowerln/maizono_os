@@ -1,7 +1,6 @@
 use crate::{
     acpi,
-    apic::{IoApic, LocalApic},
-    arch::{self, read_msr, write_msr},
+    arch::{self, IoApic, LocalApic, read_msr, write_msr},
     ps2,
 };
 use common::address::PhysPtr;
@@ -57,16 +56,6 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
 
     idt
 });
-
-// pub fn get_local_apic() -> MutexGuard<'static, LocalApic> {
-//     LOCAL_APIC.
-//         .get()
-//         .expect("called get_local_apic() before calling init_apic().")
-// }
-
-// fn notify_end_of_interrupt() {
-//     get_local_apic().write_end_of_interrupt_register(0);
-// }
 
 pub fn init() {
     init_idt();
@@ -184,19 +173,8 @@ unsafe fn disable_pic_8259() {
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let code = unsafe { ps2::controller().keyboard().read_data() };
-    // kprintln!("pressed: {:?}", code);
-    // let msg: u8 = unsafe { Port::new(0x60).read() };
-    kprintln!("keyboard");
-    // unsafe {
-    // ps2::controller().flush_data_port();
-    // };
-    // kprintln!("pressed: {}", msg);
     kprintln!("pressed");
-    // LOCAL_APIC.wait().write_end_of_interrupt_register(0);
-    let ptr = 0xfee000b0 as *mut u32;
-    unsafe {
-        ptr.write_volatile(0);
-    };
+    LOCAL_APIC.wait().write_end_of_interrupt_register(0);
 }
 
 extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {

@@ -4,11 +4,12 @@
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
 #![feature(const_mut_refs)]
+#![feature(ascii_char)]
+#![feature(ascii_char_variants)]
 
 // extern crate alloc;
 
 mod acpi;
-mod apic;
 mod arch;
 mod error;
 mod gdt;
@@ -19,7 +20,6 @@ mod paging;
 mod pci;
 mod phys_mem_manager;
 mod ps2;
-// mod timer;
 
 use core::panic::PanicInfo;
 use core::{arch::asm, ptr::read_unaligned};

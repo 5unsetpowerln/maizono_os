@@ -1,3 +1,5 @@
+use core::ascii;
+
 use crate::error::Result;
 use common::graphic::{GraphicInfo, Pixel, PixelFormat, RgbColor};
 use spin::{Mutex, MutexGuard};
@@ -116,7 +118,7 @@ impl FrameBuf {
         Ok(())
     }
 
-    fn write_char(&mut self, x: usize, y: usize, ascii: char, fg: RgbColor) -> Result<()> {
+    fn write_char(&mut self, x: usize, y: usize, ascii: ascii::Char, fg: RgbColor) -> Result<()> {
         let glyph_index = ascii as usize;
         let glyph = {
             if glyph_index >= U8_FONT.len() {
@@ -136,9 +138,14 @@ impl FrameBuf {
         Ok(())
     }
 
-    fn write_string(&mut self, x: usize, y: usize, ascii_s: &str, fg: RgbColor) -> Result<()> {
-        for (i, c) in ascii_s.chars().enumerate() {
-            self.write_char(x + i * font::CHARACTER_WIDTH * 2, y, c, fg)?;
+    fn write_string(&mut self, x: usize, y: usize, data: &str, fg: RgbColor) -> Result<()> {
+        for (i, c) in data
+            .as_ascii()
+            .expect("non ascii string is given.")
+            .iter()
+            .enumerate()
+        {
+            self.write_char(x + i * font::CHARACTER_WIDTH * 2, y, c.clone(), fg)?;
         }
         Ok(())
     }
@@ -195,13 +202,8 @@ pub fn write_pixel(x: usize, y: usize, pixel: Pixel) -> Result<()> {
     Ok(())
 }
 
-pub fn write_char(x: usize, y: usize, c: char, fg: RgbColor) -> Result<()> {
+pub fn write_char(x: usize, y: usize, c: ascii::Char, fg: RgbColor) -> Result<()> {
     frame_buf()?.write_char(x, y, c, fg)?;
-    Ok(())
-}
-
-pub fn write_string(x: usize, y: usize, s: &str, fg: RgbColor) -> Result<()> {
-    frame_buf()?.write_string(x, y, s, fg)?;
     Ok(())
 }
 
