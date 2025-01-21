@@ -87,13 +87,13 @@ fn main(boot_info: &BootInfo) -> ! {
     pci::devices()
         .unwrap()
         .init()
-        .unwrap_or_else(|err| printk!("{:#?}", err));
+        .unwrap_or_else(|err| kprintln!("{:#?}", err));
 
     let rsdp_addr = boot_info.rsdp_addr.unwrap_or_else(|| {
-        printk!("RSDP adderss wan't found. The kernel will panic.");
+        kprintln!("RSDP adderss wan't found. The kernel will panic.");
         panic!();
     });
-    printk!("rsdp_addr: 0x{:X}", rsdp_addr.get());
+    kprintln!("rsdp_addr: 0x{:X}", rsdp_addr.get());
 
     unsafe { acpi::init(rsdp_addr) };
     // timer::init_local_apic_timer();
@@ -105,7 +105,7 @@ fn main(boot_info: &BootInfo) -> ! {
 
     phys_mem_manager::mem_manager().init(&boot_info.memory_map);
 
-    printk!("It didn't crash.");
+    kprintln!("It didn't crash.");
     loop {
         unsafe { asm!("hlt") }
     }
@@ -113,8 +113,8 @@ fn main(boot_info: &BootInfo) -> ! {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    printk!("[panic]");
-    printk!("{}", info);
+    kprintln!("[panic]");
+    kprintln!("{}", info);
     loop {
         unsafe { asm!("hlt") }
     }

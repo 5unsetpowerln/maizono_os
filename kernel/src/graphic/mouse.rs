@@ -1,6 +1,6 @@
 use common::graphic::RgbColor;
 
-use crate::printk;
+use crate::kprintln;
 
 use super::frame_buffer;
 
@@ -33,7 +33,7 @@ const CURSOR_SHAPE_STR: [&str; 15] = [
 pub fn draw_cursor() {
     for (y, row) in CURSOR_SHAPE_STR.into_iter().enumerate() {
         if y >= CURSOR_HEIGHT {
-            printk!(
+            kprintln!(
                 "CURSOR_HEIGHT was defined to be {} but, \
                         CURSOR_SHAPE_STR is {} in height.",
                 CURSOR_HEIGHT,
@@ -42,7 +42,7 @@ pub fn draw_cursor() {
         }
         for (x, c) in row.chars().enumerate() {
             if x >= CURSOR_WIDTH {
-                printk!(
+                kprintln!(
                     "CURSOR_WIDTH was defined to be {} but, \
                                     CURSOR_SHAPE_STR is {} in width.",
                     CURSOR_WIDTH,
@@ -58,7 +58,7 @@ pub fn draw_cursor() {
                     frame_buffer::write_pixel(x, y, RgbColor::from(0xfbf1c700).into());
                 }
                 other => {
-                    printk!(
+                    kprintln!(
                         "There is an unexpected character \"{}\" in CURSOR_SHAPE_STR",
                         other
                     );

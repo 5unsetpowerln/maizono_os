@@ -1,7 +1,7 @@
 use controller::{Controller, ControllerConfigByte};
 use x86_64::instructions::port::Port;
 
-use crate::printk;
+use crate::kprintln;
 
 pub mod controller;
 pub mod keyboard;
@@ -117,7 +117,7 @@ pub fn init() {
 
     let mut controller = Controller::new();
     let config_byte = ControllerConfigByte::from_u8(0x47);
-    printk!(
+    kprintln!(
         "ps/2 controller config byte: 0x{:X}",
         config_byte.get().clone()
     );
@@ -126,7 +126,7 @@ pub fn init() {
         .write_config_byte(config_byte.clone())
         .expect("Failed to write to the PS/2 controller config byte.");
 
-    printk!(
+    kprintln!(
         "ps/2 controller config byte: 0x{:X}",
         controller.read_config_byte().unwrap().get() // config_byte
     );

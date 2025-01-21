@@ -1,9 +1,9 @@
-use crate::{error::Result, printk};
+use crate::error::Result;
 use common::graphic::{GraphicInfo, Pixel, PixelFormat, RgbColor};
 use spin::{Mutex, MutexGuard};
 use thiserror_no_std::Error;
 
-use super::font::{self, CHARACTER_WIDTH, GARBLED_FONT, U8_FONT};
+use super::font::{self, GARBLED_FONT, U8_FONT};
 
 static FRAME_BUF: Mutex<FrameBuf> = Mutex::new(FrameBuf::new());
 

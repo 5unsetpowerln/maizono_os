@@ -10,7 +10,7 @@ use spin::{Lazy, Mutex, MutexGuard, Once};
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
-use crate::printk;
+use crate::kprintln;
 
 static LOCAL_APIC: Once<LocalApic> = Once::new();
 
@@ -138,7 +138,7 @@ fn init_apic() {
 
     // Initializing I/O APIC
     {
-        printk!(
+        kprintln!(
             "I/O APIC base: 0x{:X}",
             acpi::get_apic_info().io_apic_base()
         );
@@ -184,14 +184,14 @@ unsafe fn disable_pic_8259() {
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let code = unsafe { ps2::controller().keyboard().read_data() };
-    // printk!("pressed: {:?}", code);
+    // kprintln!("pressed: {:?}", code);
     // let msg: u8 = unsafe { Port::new(0x60).read() };
-    printk!("keyboard");
+    kprintln!("keyboard");
     // unsafe {
     // ps2::controller().flush_data_port();
     // };
-    // printk!("pressed: {}", msg);
-    printk!("pressed");
+    // kprintln!("pressed: {}", msg);
+    kprintln!("pressed");
     // LOCAL_APIC.wait().write_end_of_interrupt_register(0);
     let ptr = 0xfee000b0 as *mut u32;
     unsafe {
@@ -203,13 +203,13 @@ extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFr
     unsafe {
         ps2::controller().flush_data_port();
     };
-    printk!("moved.");
+    kprintln!("moved.");
     LOCAL_APIC.wait().write_end_of_interrupt_register(0);
 }
 
 extern "x86-interrupt" fn breakpoint_handler(_stack_frame: InterruptStackFrame) {
-    // printk!("{:#?}", stack_frame);
-    printk!("breakpoint exception occured.");
+    // kprintln!("{:#?}", stack_frame);
+    kprintln!("breakpoint exception occured.");
     LOCAL_APIC.wait().write_end_of_interrupt_register(0);
 }
 

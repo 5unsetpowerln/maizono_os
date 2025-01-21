@@ -2,7 +2,7 @@ use core::ptr::write_volatile;
 
 use spin::Mutex;
 
-use crate::{interrupts, printk};
+use crate::{interrupts, kprintln};
 
 const COUNT_MAX: u32 = 0xffffffff;
 // const LVT_TIMER: *mut u32 = 0xfee00320 as *mut u32;

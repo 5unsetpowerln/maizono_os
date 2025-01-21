@@ -138,7 +138,7 @@ pub fn console() -> Result<MutexGuard<'static, Console>> {
 }
 
 #[macro_export]
-macro_rules! printk {
+macro_rules! kprintln {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
         crate::graphic::console::println("").unwrap();
