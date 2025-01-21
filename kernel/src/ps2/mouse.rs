@@ -47,6 +47,11 @@ impl<'a> Mouse<'a> {
         Ok(Response::from_u8(response))
     }
 
+    unsafe fn read_data(&mut self) -> Result<u8> {
+        let data = unsafe { self.controller.read_data() }?;
+        Ok(data)
+    }
+
     unsafe fn write_command(&mut self, command: Command, data: Option<u8>) -> Result<()> {
         // write command
         unsafe {
@@ -74,12 +79,15 @@ impl<'a> Mouse<'a> {
         Ok(())
     }
 
-    pub unsafe fn reset_and_self_test(&mut self) -> Result<()> {
+    pub unsafe fn reset_and_self_test(&mut self) -> Result<u8> {
         unsafe { self.write_command(Command::ResetAndSelfTest, None)? };
 
-        let response = unsafe { self.read_response() }?;
-        return match response {
-            Response::SelfTestPassed => Ok(()),
+        let test_result = unsafe { self.read_response() }?;
+        return match test_result {
+            Response::SelfTestPassed => {
+                let id = unsafe { self.read_data() }?;
+                Ok(id)
+            }
             Response::SelfTestFailed1 => Err(MouseError::SelfTestFailed),
             Response::SelfTestFailed2 => Err(MouseError::SelfTestFailed),
             _ => Err(MouseError::InvalidResponse),
