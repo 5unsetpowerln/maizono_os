@@ -1,7 +1,4 @@
-use spin::Mutex;
-use x86_64::instructions::port::{Port, PortWriteOnly};
-
-use crate::kprintln;
+pub(crate) const EVENT_BUFFER_LENGTH: usize = 128;
 
 use super::{
     controller::{Controller, ControllerError},
@@ -11,7 +8,7 @@ use super::{
 type Result<T> = core::result::Result<T, MouseError>;
 
 #[derive(Debug)]
-pub enum MouseError {
+pub(crate) enum MouseError {
     ControllerError(ControllerError),
     CommandNotAcknowledged(Response),
     InvalidResponse,
@@ -36,13 +33,51 @@ impl Command {
     }
 }
 
-pub struct Mouse<'a> {
-    controller: &'a mut Controller,
+pub(crate) struct MouseEvent {
+    y_overflow: bool,
+    x_overflow: bool,
+    y_sign: bool,
+    x_sign: bool,
+    button_middle: bool,
+    button_right: bool,
+    button_left: bool,
+    x_offset: u8,
+    y_offset: u8,
 }
 
-impl<'a> Mouse<'a> {
-    pub fn new(controller: &'a mut Controller) -> Self {
-        Self { controller }
+impl MouseEvent {
+    fn new(data0: u8, data1: u8, data2: u8) -> Self {
+        let y_overflow = data0 & 1 == 1;
+        let x_overflow = (data0 >> 1) & 1 == 1;
+        let y_sign = (data0 >> 2) & 1 == 1;
+        let x_sign = (data0 >> 3) & 1 == 1;
+        let button_middle = (data0 >> 5) & 1 == 1;
+        let button_right = (data0 >> 6) & 1 == 1;
+        let button_left = (data0 >> 7) & 1 == 1;
+
+        Self {
+            y_overflow,
+            x_overflow,
+            y_sign,
+            x_sign,
+            button_middle,
+            button_right,
+            button_left,
+            x_offset: data1,
+            y_offset: data2,
+        }
+    }
+}
+
+pub(crate) struct Mouse {
+    controller: Controller,
+}
+
+impl Mouse {
+    pub(crate) fn new() -> Self {
+        Self {
+            controller: Controller::new(),
+        }
     }
 
     unsafe fn read_response(&mut self) -> Result<Response> {
@@ -82,16 +117,16 @@ impl<'a> Mouse<'a> {
         Ok(())
     }
 
-    pub unsafe fn enable_data_reporting(&mut self) -> Result<()> {
+    pub(crate) unsafe fn enable_data_reporting(&mut self) -> Result<()> {
         unsafe { self.write_command(Command::EnableDataReporting, None) }?;
         Ok(())
     }
 
-    pub unsafe fn reset_and_self_test(&mut self) -> Result<u8> {
+    pub(crate) unsafe fn reset_and_self_test(&mut self) -> Result<u8> {
         unsafe { self.write_command(Command::ResetAndSelfTest, None)? };
 
         let test_result = unsafe { self.read_response() }?;
-        return match test_result {
+        match test_result {
             Response::SelfTestPassed => {
                 let id = unsafe { self.read_data() }?;
                 Ok(id)
@@ -99,6 +134,22 @@ impl<'a> Mouse<'a> {
             Response::SelfTestFailed1 => Err(MouseError::SelfTestFailed),
             Response::SelfTestFailed2 => Err(MouseError::SelfTestFailed),
             _ => Err(MouseError::InvalidResponse),
-        };
+        }
+    }
+
+    pub unsafe fn receive_events(&mut self, handler: fn(u8, u8, u8)) -> Result<()> {
+        let mut count = 0;
+        let mut buffer = [0; 3];
+        while unsafe { self.controller.read_status() }.is_output_full()
+            && count < self.controller.loop_timeout
+        {
+            buffer[count % 3] = unsafe { self.read_data() }?;
+            if count % 3 == 1 {
+                handler(buffer[0], buffer[1], buffer[2]);
+            }
+            count += 1;
+        }
+
+        Ok(())
     }
 }

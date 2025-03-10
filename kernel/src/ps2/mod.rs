@@ -1,4 +1,8 @@
 use controller::Controller;
+use keyboard::Keyboard;
+use mouse::Mouse;
+use spin::{Mutex, MutexGuard, Once};
+use static_assertions::const_assert;
 
 use crate::kprintln;
 
@@ -6,8 +10,25 @@ pub mod controller;
 pub mod keyboard;
 pub mod mouse;
 
-pub fn controller() -> Controller {
-    Controller::new()
+const_assert!(controller::LOOP_TIMEOUT > mouse::EVENT_BUFFER_LENGTH);
+
+static MOUSE: Once<Mutex<Mouse>> = Once::new();
+static KEYBOARD: Once<Mutex<Keyboard>> = Once::new();
+
+pub fn mouse() -> &'static Mutex<Mouse> {
+    if MOUSE.is_completed() {
+        MOUSE.wait()
+    } else {
+        panic!("ps/2 devices are not initialized.")
+    }
+}
+
+pub fn keyboard() -> &'static Mutex<Keyboard> {
+    if KEYBOARD.is_completed() {
+        KEYBOARD.wait()
+    } else {
+        panic!("ps/2 devices are not initialized.")
+    }
 }
 
 pub fn init() {
@@ -100,15 +121,21 @@ pub fn init() {
         .expect("Failed to write to the PS/2 controller config byte.");
 
     // Step 10: Reset Devices
-    unsafe { controller.keyboard().reset_and_self_test() }
+    let mut keyboard = Keyboard::new();
+    let mut mouse = Mouse::new();
+
+    unsafe { keyboard.reset_and_self_test() }
         .unwrap_or_else(|err| panic!("failed to reset the keyboard: {:?}", err));
-    unsafe { controller.mouse().reset_and_self_test() }
+    unsafe { mouse.reset_and_self_test() }
         .unwrap_or_else(|err| panic!("failed to reset the mouse: {:?}", err));
 
     // enable mouse's data-reporting
     if second_port_works {
-        unsafe { controller.mouse().enable_data_reporting() }.unwrap_or_else(|err| {
+        unsafe { mouse.enable_data_reporting() }.unwrap_or_else(|err| {
             panic!("failed to enable data-reporting of the mouse: {:?}", err)
         });
     }
+
+    KEYBOARD.call_once(|| Mutex::new(keyboard));
+    MOUSE.call_once(|| Mutex::new(mouse));
 }

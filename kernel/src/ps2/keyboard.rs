@@ -80,13 +80,15 @@ impl Command {
     }
 }
 
-pub struct Keyboard<'a> {
-    controller: &'a mut Controller,
+pub struct Keyboard {
+    controller: Controller,
 }
 
-impl<'a> Keyboard<'a> {
-    pub fn new(controller: &'a mut Controller) -> Self {
-        Self { controller }
+impl Keyboard {
+    pub fn new() -> Self {
+        Self {
+            controller: Controller::new(),
+        }
     }
 
     unsafe fn read_response(&mut self) -> Result<Response> {

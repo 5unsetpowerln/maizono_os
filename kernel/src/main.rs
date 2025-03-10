@@ -21,12 +21,12 @@ mod paging;
 mod pci;
 mod phys_mem_manager;
 mod ps2;
+mod message;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use alloc::boxed::Box;
-use common::{boot::BootInfo, graphic::RgbColor};
+use common::{arrayqueue::ArrayQueue, boot::BootInfo, graphic::RgbColor};
 use graphic::{
     console,
     frame_buffer::{self},
@@ -106,11 +106,11 @@ fn main(boot_info: &BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
 
     //phys_mem_manager::mem_manager().init(&boot_info.memory_map);
-    let x = Box::new(41);
 
     kprintln!("It didn't crash.");
     loop {
-        unsafe { asm!("hlt") }
+        message::handle_message();
+        //unsafe { asm!("hlt") }
     }
 }
 

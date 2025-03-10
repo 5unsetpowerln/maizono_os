@@ -1,11 +1,9 @@
 use crate::{
     acpi,
     arch::{self, IoApic, LocalApic, read_msr, write_msr},
-    ps2,
+    message, ps2,
 };
-use common::address::PhysPtr;
-use core::ptr::{read_volatile, write_volatile};
-use spin::{Lazy, Mutex, MutexGuard, Once};
+use spin::{Lazy, Once};
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
@@ -172,16 +170,16 @@ unsafe fn disable_pic_8259() {
 }
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    let code = unsafe { ps2::controller().keyboard().read_data() };
-    kprintln!("pressed");
+    unsafe {
+        message::QUEUE.enqueue(message::Message::PS2KeyboardInterrupt);
+    }
     LOCAL_APIC.wait().write_end_of_interrupt_register(0);
 }
 
 extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
     unsafe {
-        ps2::controller().flush_data_port();
-    };
-    kprintln!("moved.");
+        message::QUEUE.enqueue(message::Message::PS2KeyboardInterrupt);
+    }
     LOCAL_APIC.wait().write_end_of_interrupt_register(0);
 }
 
