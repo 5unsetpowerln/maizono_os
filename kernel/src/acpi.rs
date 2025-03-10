@@ -1,4 +1,8 @@
-use core::{marker::PhantomData, ptr::read_unaligned};
+use core::{
+    marker::PhantomData,
+    pin::{Pin, pin},
+    ptr::read_unaligned,
+};
 
 use acpi::{
     AcpiError,
@@ -102,7 +106,7 @@ pub struct ApicInfo {
 }
 
 impl ApicInfo {
-    fn from_madt(madt: &Madt) -> Self {
+    fn from_madt(madt: Pin<&Madt>) -> Self {
         // Find the entry about I/O APIC from the MADT.
         let io_apic_entry = madt
             .entries()
@@ -199,11 +203,13 @@ pub unsafe fn init(rsdp_addr: PhysPtr) {
         panic!();
     }
 
+    let madt = unsafe { Pin::new_unchecked(&*madt_ptr) };
+
     kprintln!("FADT is found: 0x{:X}", fadt_ptr as u64);
     FADT.call_once(|| *fadt_ptr);
 
     kprintln!("MADT is found: 0x{:X}", madt_ptr as u64);
-    APIC_INFO.call_once(|| ApicInfo::from_madt(&*madt_ptr));
+    APIC_INFO.call_once(|| ApicInfo::from_madt(madt));
 }
 
 pub fn get_fadt() -> &'static Fadt {
