@@ -7,9 +7,10 @@
 #![feature(ascii_char)]
 #![feature(ascii_char_variants)]
 
-// extern crate alloc;
+extern crate alloc;
 
 mod acpi;
+mod allocator;
 mod arch;
 mod error;
 mod gdt;
@@ -21,9 +22,10 @@ mod pci;
 mod phys_mem_manager;
 mod ps2;
 
+use core::arch::asm;
 use core::panic::PanicInfo;
-use core::{arch::asm, ptr::read_unaligned};
 
+use alloc::boxed::Box;
 use common::{boot::BootInfo, graphic::RgbColor};
 use graphic::{
     console,
@@ -103,7 +105,8 @@ fn main(boot_info: &BootInfo) -> ! {
     interrupts::init();
     x86_64::instructions::interrupts::enable();
 
-    phys_mem_manager::mem_manager().init(&boot_info.memory_map);
+    //phys_mem_manager::mem_manager().init(&boot_info.memory_map);
+    let x = Box::new(41);
 
     kprintln!("It didn't crash.");
     loop {
