@@ -1,5 +1,9 @@
 pub(crate) const EVENT_BUFFER_LENGTH: usize = 128;
 
+use x86_64::structures::idt::InterruptStackFrame;
+
+use crate::{interrupts, message};
+
 use super::{
     controller::{Controller, ControllerError},
     keyboard::Response,
@@ -152,4 +156,9 @@ impl Mouse {
 
         Ok(())
     }
+}
+
+pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
+    message::enqueue(message::Message::PS2MouseInterrupt);
+    interrupts::notify_end_of_interrupt();
 }

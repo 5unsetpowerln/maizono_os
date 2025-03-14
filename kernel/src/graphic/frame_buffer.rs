@@ -150,7 +150,7 @@ impl FrameBuf {
         Ok(())
     }
 
-    fn is_inside_buffer(&mut self, x: usize, y: usize) -> bool {
+    fn is_inside_buffer(&self, x: usize, y: usize) -> bool {
         !(x >= self.width || y >= self.height)
     }
 

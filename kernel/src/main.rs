@@ -12,16 +12,16 @@ extern crate alloc;
 mod acpi;
 mod allocator;
 mod arch;
+mod device;
 mod error;
 mod gdt;
 mod graphic;
 mod interrupts;
 mod memory_map;
+mod message;
 mod paging;
 mod pci;
 mod phys_mem_manager;
-mod ps2;
-mod message;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -109,8 +109,11 @@ fn main(boot_info: &BootInfo) -> ! {
 
     kprintln!("It didn't crash.");
     loop {
-        message::handle_message();
-        //unsafe { asm!("hlt") }
+        if message::count() > 0 {
+            message::handle_message();
+        } else {
+            unsafe { asm!("hlt") }
+        }
     }
 }
 

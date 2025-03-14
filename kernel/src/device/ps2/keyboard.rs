@@ -1,3 +1,7 @@
+use x86_64::structures::idt::InterruptStackFrame;
+
+use crate::{interrupts, message};
+
 use super::controller::{Controller, ControllerError};
 
 type Result<T> = core::result::Result<T, KeyboardError>;
@@ -133,4 +137,9 @@ impl Keyboard {
     pub unsafe fn read_data(&mut self) -> Result<u8> {
         return Ok(unsafe { self.controller.read_data()? });
     }
+}
+
+pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
+    message::enqueue(message::Message::PS2KeyboardInterrupt);
+    interrupts::notify_end_of_interrupt();
 }

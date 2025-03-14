@@ -36,6 +36,10 @@ impl<T, const CAP: usize> ArrayQueue<T, CAP> {
         self.read_pos = (self.read_pos + 1) % CAP;
         element
     }
+
+    pub fn count(&self) -> usize {
+        self.write_pos - self.read_pos
+    }
 }
 
 impl<T, const CAP: usize> Default for ArrayQueue<T, CAP> {
@@ -55,7 +59,7 @@ unsafe impl<T, const CAP: usize> Sync for LockLessArrayQueue<T, CAP> {}
 impl<T, const CAP: usize> LockLessArrayQueue<T, CAP> {
     pub const fn new() -> Self {
         Self {
-            array: UnsafeCell::new([const {None}; CAP]),
+            array: UnsafeCell::new([const { None }; CAP]),
             write_pos: AtomicUsize::new(0),
             read_pos: AtomicUsize::new(0),
         }
@@ -66,7 +70,9 @@ impl<T, const CAP: usize> LockLessArrayQueue<T, CAP> {
         let next_write_pos = (write_pos + 1) % CAP;
 
         if next_write_pos != self.read_pos.load(Ordering::Acquire) {
-            unsafe { (*self.array.get())[write_pos] = Some(element) ;}
+            unsafe {
+                (*self.array.get())[write_pos] = Some(element);
+            }
             self.write_pos.store(next_write_pos, Ordering::Release);
         }
     }
@@ -77,7 +83,7 @@ impl<T, const CAP: usize> LockLessArrayQueue<T, CAP> {
             return None;
         }
 
-        let element = unsafe {(*self.array.get())[read_pos].take()};
+        let element = unsafe { (*self.array.get())[read_pos].take() };
         self.read_pos.store((read_pos + 1) % CAP, Ordering::Release);
         element
     }
@@ -90,5 +96,5 @@ impl<T, const CAP: usize> Default for LockLessArrayQueue<T, CAP> {
 }
 
 //pub trait ConstDefault {
-    //const fn const_default();
+//const fn const_default();
 //}

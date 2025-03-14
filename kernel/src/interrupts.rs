@@ -1,7 +1,8 @@
 use crate::{
     acpi,
     arch::{self, IoApic, LocalApic, read_msr, write_msr},
-    message, ps2,
+    device::ps2,
+    message,
 };
 use spin::{Lazy, Once};
 use x86_64::instructions::port::Port;
@@ -49,8 +50,9 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt.double_fault.set_handler_fn(double_fault_handler);
     idt[InterruptVector::LocalAPICTimer as u8].set_handler_fn(timer_interrupt_handler);
     idt[InterruptVector::EXTERNAL_IRQ_TIMER.as_u8()].set_handler_fn(timer_interrupt_handler);
-    idt[InterruptVector::EXTERNAL_IRQ_KEYBOARD.as_u8()].set_handler_fn(keyboard_interrupt_handler);
-    idt[InterruptVector::EXTERNAL_IRQ_MOUSE.as_u8()].set_handler_fn(mouse_interrupt_handler);
+    idt[InterruptVector::EXTERNAL_IRQ_KEYBOARD.as_u8()]
+        .set_handler_fn(ps2::keyboard::interrupt_handler);
+    idt[InterruptVector::EXTERNAL_IRQ_MOUSE.as_u8()].set_handler_fn(ps2::mouse::interrupt_handler);
 
     idt
 });
@@ -169,24 +171,14 @@ unsafe fn disable_pic_8259() {
     }
 }
 
-extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    unsafe {
-        message::QUEUE.enqueue(message::Message::PS2KeyboardInterrupt);
-    }
-    LOCAL_APIC.wait().write_end_of_interrupt_register(0);
-}
-
-extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    unsafe {
-        message::QUEUE.enqueue(message::Message::PS2KeyboardInterrupt);
-    }
+pub fn notify_end_of_interrupt() {
     LOCAL_APIC.wait().write_end_of_interrupt_register(0);
 }
 
 extern "x86-interrupt" fn breakpoint_handler(_stack_frame: InterruptStackFrame) {
     // kprintln!("{:#?}", stack_frame);
     kprintln!("breakpoint exception occured.");
-    LOCAL_APIC.wait().write_end_of_interrupt_register(0);
+    notify_end_of_interrupt();
 }
 
 extern "x86-interrupt" fn double_fault_handler(
@@ -198,5 +190,5 @@ extern "x86-interrupt" fn double_fault_handler(
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     // timer::local_apic_timer_on_interrupt();
-    LOCAL_APIC.wait().write_end_of_interrupt_register(0);
+    notify_end_of_interrupt();
 }
