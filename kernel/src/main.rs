@@ -19,6 +19,7 @@ mod graphic;
 mod interrupts;
 mod memory_map;
 mod message;
+mod mouse;
 mod paging;
 mod pci;
 mod phys_mem_manager;
@@ -27,6 +28,7 @@ use core::arch::asm;
 use core::panic::PanicInfo;
 
 use common::{arrayqueue::ArrayQueue, boot::BootInfo, graphic::RgbColor};
+use device::ps2;
 use graphic::{
     console,
     frame_buffer::{self},
@@ -106,6 +108,8 @@ fn main(boot_info: &BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
 
     //phys_mem_manager::mem_manager().init(&boot_info.memory_map);
+
+    mouse::draw_cursor();
 
     kprintln!("It didn't crash.");
     loop {

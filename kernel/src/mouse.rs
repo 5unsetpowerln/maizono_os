@@ -25,11 +25,6 @@ const CURSOR_SHAPE_STR: [&str; 15] = [
     "      @@@      ",
 ];
 
-// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// pub enum MouseError {
-// UninitializedError,
-// }
-
 pub fn draw_cursor() {
     for (y, row) in CURSOR_SHAPE_STR.into_iter().enumerate() {
         if y >= CURSOR_HEIGHT {
@@ -52,10 +47,10 @@ pub fn draw_cursor() {
             match c {
                 ' ' => continue,
                 '.' => {
-                    frame_buffer::write_pixel(x, y, RgbColor::from(0x689d6a00).into());
+                    frame_buffer::write_pixel(x, y, RgbColor::from(0x689d6a00).into()).unwrap();
                 }
                 '@' => {
-                    frame_buffer::write_pixel(x, y, RgbColor::from(0xfbf1c700).into());
+                    frame_buffer::write_pixel(x, y, RgbColor::from(0xfbf1c700).into()).unwrap();
                 }
                 other => {
                     kprintln!(
@@ -67,3 +62,5 @@ pub fn draw_cursor() {
         }
     }
 }
+
+// pub fn relative
