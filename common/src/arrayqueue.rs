@@ -7,6 +7,7 @@ pub struct ArrayQueue<T, const CAP: usize> {
     array: [Option<T>; CAP],
     write_pos: usize,
     read_pos: usize,
+    count: usize,
 }
 
 impl<T, const CAP: usize> ArrayQueue<T, CAP> {
@@ -15,6 +16,7 @@ impl<T, const CAP: usize> ArrayQueue<T, CAP> {
             array: [const { None }; CAP],
             write_pos: 0,
             read_pos: 0,
+            count: 0,
         }
     }
 
@@ -24,6 +26,7 @@ impl<T, const CAP: usize> ArrayQueue<T, CAP> {
         if next_write_pos != self.read_pos {
             self.array[self.write_pos] = Some(element);
             self.write_pos = next_write_pos;
+            self.count += 1;
         }
     }
 
@@ -34,11 +37,12 @@ impl<T, const CAP: usize> ArrayQueue<T, CAP> {
 
         let element = self.array[self.read_pos].take();
         self.read_pos = (self.read_pos + 1) % CAP;
+        self.count -= 1;
         element
     }
 
     pub fn count(&self) -> usize {
-        self.write_pos - self.read_pos
+        self.count
     }
 }
 

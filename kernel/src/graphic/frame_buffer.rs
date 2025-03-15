@@ -2,12 +2,14 @@ use core::ascii;
 
 use crate::error::Result;
 use common::graphic::{GraphicInfo, Pixel, PixelFormat, RgbColor};
-use spin::{Mutex, MutexGuard};
+use spin::{Mutex, MutexGuard, Once};
 use thiserror_no_std::Error;
 
 use super::font::{self, GARBLED_FONT, U8_FONT};
 
 static FRAME_BUF: Mutex<FrameBuf> = Mutex::new(FrameBuf::new());
+static FRAME_BUFFER_WIDTH: Once<usize> = Once::new();
+static FRAME_BUFFER_HEIGHT: Once<usize> = Once::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum FrameBufferError {
@@ -191,10 +193,18 @@ fn write_pixel_bgr(self_: &mut FrameBuf, x: usize, y: usize, mut pixel: Pixel) -
     Ok(())
 }
 
-pub fn frame_buf() -> Result<MutexGuard<'static, FrameBuf>> {
+fn frame_buf() -> Result<MutexGuard<'static, FrameBuf>> {
     FRAME_BUF
         .try_lock()
         .ok_or(FrameBufferError::FrameBufferLockError.into())
+}
+
+pub fn init(graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
+    let mut frame_buffer = frame_buf()?;
+    frame_buffer.init(graphic_info, bg_color);
+    FRAME_BUFFER_WIDTH.call_once(|| frame_buffer.get_width());
+    FRAME_BUFFER_HEIGHT.call_once(|| frame_buffer.get_height());
+    Ok(())
 }
 
 pub fn write_pixel(x: usize, y: usize, pixel: Pixel) -> Result<()> {
@@ -222,10 +232,10 @@ pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColo
     Ok(())
 }
 
-pub fn width() -> Result<usize> {
-    Ok(frame_buf()?.get_width())
+pub fn width() -> usize {
+    *FRAME_BUFFER_WIDTH.wait()
 }
 
-pub fn height() -> Result<usize> {
-    Ok(frame_buf()?.get_height())
+pub fn height() -> usize {
+    *FRAME_BUFFER_HEIGHT.wait()
 }

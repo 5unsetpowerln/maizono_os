@@ -1,8 +1,10 @@
 pub(crate) const EVENT_BUFFER_LENGTH: usize = 128;
 
+use common::matrix::Vec2;
 use x86_64::structures::idt::InterruptStackFrame;
 
-use crate::{interrupts, message};
+use crate::device::ps2;
+use crate::{interrupts, kprintln, message, mouse};
 
 use super::{
     controller::{Controller, ControllerError},
@@ -37,16 +39,16 @@ impl Command {
     }
 }
 
-pub(crate) struct MouseEvent {
-    y_overflow: bool,
-    x_overflow: bool,
-    y_sign: bool,
-    x_sign: bool,
-    button_middle: bool,
-    button_right: bool,
-    button_left: bool,
-    x_offset: u8,
-    y_offset: u8,
+pub struct MouseEvent {
+    pub y_overflow: bool,
+    pub x_overflow: bool,
+    pub y_sign: bool,
+    pub x_sign: bool,
+    pub button_middle: bool,
+    pub button_right: bool,
+    pub button_left: bool,
+    pub x_offset: i8,
+    pub y_offset: i8,
 }
 
 impl MouseEvent {
@@ -67,8 +69,29 @@ impl MouseEvent {
             button_middle,
             button_right,
             button_left,
-            x_offset: data1,
-            y_offset: data2,
+            x_offset: data1 as i8,
+            y_offset: data2 as i8,
+        }
+    }
+}
+
+impl From<MouseEvent> for mouse::MouseEvent {
+    fn from(event: MouseEvent) -> mouse::MouseEvent {
+        let dx = if !event.x_sign {
+            (event.x_offset + if event.x_overflow { 1 } else { 0 } * 127) as isize
+        } else {
+            (event.x_offset + if event.x_overflow { 1 } else { 0 } * -127) as isize
+        };
+
+        let mut dy = if !event.y_sign {
+            (event.y_offset + if event.y_overflow { 1 } else { 0 } * 127) as isize
+        } else {
+            (event.y_offset + if event.y_overflow { 1 } else { 0 } * -127) as isize
+        };
+        dy = -dy;
+
+        mouse::MouseEvent {
+            displacement: Vec2::new(dx, dy, isize::MIN, isize::MAX, isize::MIN, isize::MAX),
         }
     }
 }
@@ -141,18 +164,13 @@ impl Mouse {
         }
     }
 
-    pub unsafe fn receive_events(&mut self, handler: fn(u8, u8, u8)) -> Result<()> {
-        let mut count = 0;
+    pub unsafe fn receive_events(&mut self, handler: fn(mouse::MouseEvent)) -> Result<()> {
         let mut buffer = [0; 3];
-        while unsafe { self.controller.read_status() }.is_output_full()
-            && count < self.controller.loop_timeout
-        {
-            buffer[count % 3] = unsafe { self.read_data() }?;
-            if count % 3 == 1 {
-                handler(buffer[0], buffer[1], buffer[2]);
-            }
-            count += 1;
+        for i in 0..3 {
+            buffer[i] = unsafe { self.read_data() }?;
         }
+        let event = MouseEvent::new(buffer[0], buffer[1], buffer[2]);
+        handler(event.into());
 
         Ok(())
     }

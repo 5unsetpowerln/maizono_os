@@ -100,12 +100,12 @@ impl GraphicInfo {
 pub struct Pixel(u32);
 
 impl Pixel {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(0x00000000)
     }
 
     pub fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self(u32::from_be_bytes([r, g, b, 0x0]))
+        Self(u32::from_be_bytes([r, g, b, 0]))
     }
 
     pub fn get(&self) -> u32 {
@@ -122,13 +122,17 @@ impl Pixel {
     pub fn le(&self) -> u32 {
         u32::from_be(self.0)
     }
-}
 
-impl From<u32> for Pixel {
-    fn from(value: u32) -> Self {
+    pub const fn from(value: u32) -> Self {
         Self(value)
     }
 }
+
+// impl From<u32> for Pixel {
+//     fn from(value: u32) -> Self {
+//         Self(value)
+//     }
+// }
 
 impl From<RgbColor> for Pixel {
     fn from(value: RgbColor) -> Self {
@@ -158,10 +162,8 @@ impl RgbColor {
         let b = ((self.0 & 0xff00) >> 0x8) as u8;
         self.0 = u32::from_be_bytes([b, g, r, 0])
     }
-}
 
-impl From<u32> for RgbColor {
-    fn from(value: u32) -> Self {
+    pub const fn from(value: u32) -> Self {
         Self(value)
     }
 }

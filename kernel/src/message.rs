@@ -2,7 +2,7 @@ use common::arrayqueue::{ArrayQueue, LockLessArrayQueue};
 use spin::Mutex;
 
 use crate::device::ps2;
-use crate::kprintln;
+use crate::{kprintln, mouse};
 
 pub enum Message {
     PS2MouseInterrupt,
@@ -19,9 +19,9 @@ pub fn handle_message() {
                 kprintln!("{:?}", unsafe { ps2::keyboard().lock().read_data() });
             }
             Message::PS2MouseInterrupt => {
-                let a = unsafe {
-                    ps2::mouse().lock().receive_events(|data0, data1, data2| {
-                        kprintln!("{}, {}", data1, data2);
+                let _ = unsafe {
+                    ps2::mouse().lock().receive_events(|event| {
+                        mouse::move_relative(event.displacement);
                     })
                 };
             }

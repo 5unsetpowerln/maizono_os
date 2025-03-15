@@ -78,10 +78,7 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
 }
 
 fn main(boot_info: &BootInfo) -> ! {
-    frame_buffer::frame_buf()
-        .unwrap()
-        .init(&boot_info.graphic_info, RgbColor::from(0x28282800))
-        .unwrap();
+    frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800)).unwrap();
     console::console()
         .unwrap()
         .init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200))
@@ -104,13 +101,15 @@ fn main(boot_info: &BootInfo) -> ! {
     // timer::start_local_apic_timer();
 
     ps2::init();
+    x86_64::instructions::interrupts::disable();
     interrupts::init();
     x86_64::instructions::interrupts::enable();
 
     //phys_mem_manager::mem_manager().init(&boot_info.memory_map);
 
-    mouse::draw_cursor();
+    mouse::init(100, 100, RgbColor::from(0x28282800));
 
+    kprintln!("{} * {}", frame_buffer::height(), frame_buffer::width());
     kprintln!("It didn't crash.");
     loop {
         if message::count() > 0 {
