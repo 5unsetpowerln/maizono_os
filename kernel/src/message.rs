@@ -20,8 +20,11 @@ pub fn handle_message() {
             }
             Message::PS2MouseInterrupt => {
                 let _ = unsafe {
-                    ps2::mouse().lock().receive_events(|event| {
-                        mouse::move_relative(event.displacement);
+                    ps2::mouse().lock().receive_events(|event| match event {
+                        mouse::MouseEvent::Move { displacement } => {
+                            mouse::move_relative(displacement);
+                        }
+                        _ => {}
                     })
                 };
             }

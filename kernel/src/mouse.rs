@@ -66,8 +66,11 @@ const MOUSE_CURSOR_DATA: [[MousePixel; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT]
     mouse_cursor
 };
 
-pub struct MouseEvent {
-    pub displacement: Vec2<isize>,
+pub enum MouseEvent {
+    Move { displacement: Vec2<isize> },
+    LeftClick,
+    MiddleClick,
+    RightClick,
 }
 
 struct MouseCursor {

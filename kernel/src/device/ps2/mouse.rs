@@ -53,13 +53,13 @@ pub struct MouseEvent {
 
 impl MouseEvent {
     fn new(data0: u8, data1: u8, data2: u8) -> Self {
-        let y_overflow = data0 & 1 == 1;
-        let x_overflow = (data0 >> 1) & 1 == 1;
-        let y_sign = (data0 >> 2) & 1 == 1;
-        let x_sign = (data0 >> 3) & 1 == 1;
-        let button_middle = (data0 >> 5) & 1 == 1;
-        let button_right = (data0 >> 6) & 1 == 1;
-        let button_left = (data0 >> 7) & 1 == 1;
+        let button_left = data0 & 1 == 1;
+        let button_right = (data0 >> 1) & 1 == 1;
+        let button_middle = (data0 >> 2) & 1 == 1;
+        let x_sign = (data0 >> 4) & 1 == 1;
+        let y_sign = (data0 >> 5) & 1 == 1;
+        let x_overflow = (data0 >> 6) & 1 == 1;
+        let y_overflow = (data0 >> 7) & 1 == 1;
 
         Self {
             y_overflow,
@@ -90,7 +90,17 @@ impl From<MouseEvent> for mouse::MouseEvent {
         };
         dy = -dy;
 
-        mouse::MouseEvent {
+        if event.button_left {
+            return mouse::MouseEvent::LeftClick;
+        }
+        if event.button_middle {
+            return mouse::MouseEvent::MiddleClick;
+        }
+        if event.button_right {
+            return mouse::MouseEvent::RightClick;
+        }
+
+        mouse::MouseEvent::Move {
             displacement: Vec2::new(dx, dy, isize::MIN, isize::MAX, isize::MIN, isize::MAX),
         }
     }
