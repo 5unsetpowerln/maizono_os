@@ -14,6 +14,7 @@ mod allocator;
 mod arch;
 mod device;
 mod error;
+mod frame_manager;
 mod gdt;
 mod graphic;
 mod interrupts;
@@ -22,7 +23,6 @@ mod message;
 mod mouse;
 mod paging;
 mod pci;
-mod phys_mem_manager;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
