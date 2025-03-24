@@ -158,11 +158,6 @@ impl Console {
             }
         }
     }
-
-    fn println(&mut self, s: &str) {
-        self.print(s);
-        self.new_line();
-    }
 }
 
 pub fn console() -> Result<MutexGuard<'static, Console>> {
@@ -173,28 +168,15 @@ pub fn console() -> Result<MutexGuard<'static, Console>> {
 }
 
 #[macro_export]
-macro_rules! kprintln {
+macro_rules! kprint {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        crate::graphic::console::console().unwrap().write_fmt(core::format_args!($($arg)*)).unwrap();
-        crate::graphic::console::println("").unwrap();
+        crate::graphic::console::console().unwrap().write_fmt(format_args!($($arg)*)).unwrap();
     }};
 }
 
 #[macro_export]
-macro_rules! kprint {
-    ($($arg:tt)*) => {{
-        use core::fmt::Write;
-        crate::graphic::console::console().unwrap().write_fmt(core::format_args!($($arg)*)).unwrap();
-    }};
-}
-
-pub fn print(s: &str) -> Result<()> {
-    console()?.print(s);
-    Ok(())
-}
-
-pub fn println(s: &str) -> Result<()> {
-    console()?.println(s);
-    Ok(())
+macro_rules! kprintln {
+    () => (kprint!("\n"));
+    ($($arg:tt)*) => ($crate::kprint!("{}\n", format_args!($($arg)*)));
 }
