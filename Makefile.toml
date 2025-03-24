@@ -4,7 +4,6 @@ BOOTLOADER_NAME = "bootloader"
 KERNEL_NAME = "kernel"
 KERNEL_BUILD_TARGET_NAME = "x86_64-kernel"
 BUILD = "build"
-
 MOUNT_POINT_NAME = "mnt"
 DISK_IMAGE_NAME = "boot.img"
 OVMF_FILE_NAME = "OVMF-pure-efi.fd"
@@ -36,41 +35,45 @@ script = [
 #
 [tasks.run_qemu]
 description = "Run QEMU with the disk image and UEFI firmware"
-command = "qemu-system-x86_64"
-args = [
-    "-enable-kvm",
+script = '''
+qemu-system-x86_64 -enable-kvm \
+    -smp 4 \
+    -m 1G \
+    -bios ${BUILD}/${OVMF_FILE_NAME} \
+    -drive format=raw,file=${BUILD}/${DISK_IMAGE_NAME} \
+    -serial stdio \
+'''
 
-    "-smp",
-    "4",
+[tasks.run_qemu_test]
+script = '''
+set +e
 
-    "-m",
-    # "2G",
-    "1G",
+setsid timeout 300s qemu-system-x86_64 -enable-kvm \
+    -smp 4 \
+    -m 1G \
+    -bios ${BUILD}/${OVMF_FILE_NAME} \
+    -drive format=raw,file=${BUILD}/${DISK_IMAGE_NAME} \
+    -serial stdio \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+    -display none
 
-    "-bios",
-    "${BUILD}/${OVMF_FILE_NAME}",
+EXIT_CODE=$?
 
-    "-drive",
-    "format=raw,file=${BUILD}/${DISK_IMAGE_NAME}",
+if [ "$EXIT_CODE" -eq 33 ]; then
+    echo "Test Success"
+    exit 0
+elif [ "$EXIT_CODE" -eq 35 ]; then
+    echo "Test Failed"
+    exit 1
+elif [ "$EXIT_CODE" -eq 124 ]; then
+    echo "Timed out"
+    exit 1
+else
+    echo "Unexpected Exit Code: $EXIT_CODE"
+    exit 1
+fi
+'''
 
-    # "--device",
-    # "qemu-xhci,id=xhci",
-
-    # "--device",
-    # "usb-mouse",
-
-    # "--device",
-    # "usb-kbd",
-
-    # "--device",
-    # "usb-tablet",
-
-    "--monitor",
-    "stdio",
-
-    # "-s",
-    # "-S",
-]
 
 [tasks.pre_build]
 script = ["rm -rf ${BUILD}", "mkdir ${BUILD}", "cp ${OVMF_FILE_NAME} ${BUILD}"]
@@ -88,10 +91,17 @@ script = [
 description = "Build the kernel and copy it to the build directory."
 script = [
     "cd ${KERNEL_NAME}",
-    # "cargo build --target x86_64-unknown-none",
     "cargo build",
     "cd ..",
     "cp ./${KERNEL_NAME}/target/${KERNEL_BUILD_TARGET_NAME}/debug/${KERNEL_NAME}.elf ${BUILD}/${KERNEL_NAME}.elf",
+]
+
+[tasks.build_kernel_test]
+description = "Build the kernel for testing."
+script = [
+    "cd ${KERNEL_NAME}",
+    "cp $(cargo test --no-run --message-format=json | jq -r 'select(.profile.test == true) | .filenames[]') ../${BUILD}/${KERNEL_NAME}.elf",
+    "cd ..",
 ]
 
 [tasks.build_debug]
@@ -103,5 +113,16 @@ dependencies = [
     "make_image",
 ]
 
+[tasks.build_test]
+dependencies = [
+    "pre_build",
+    "build_bootloader_debug",
+    "build_kernel_test",
+    "make_image",
+]
+
 [tasks.run_debug]
 dependencies = ["build_debug", "run_qemu"]
+
+[tasks.run_test]
+dependencies = ["build_test", "run_qemu_test"]

@@ -19,4 +19,5 @@ x86_64 = "0.15.2"
 static_assertions = "1.1.0"
 bitfield = "0.17.0"
 acpi = { version = "5.1.0", default-features = false }
+uart_16550 = "0.3.2"
 # ps2 = "0.2.0"

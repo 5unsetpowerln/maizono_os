@@ -1,9 +1,9 @@
 #![no_std]
 #![no_main]
-#![feature(inherent_associated_types)]
 #![feature(abi_x86_interrupt)]
 #![feature(custom_test_frameworks)]
-#![feature(const_mut_refs)]
+#![test_runner(crate::test_runner)]
+#![reexport_test_harness_main = "test_main"]
 #![feature(ascii_char)]
 #![feature(ascii_char_variants)]
 
@@ -23,11 +23,13 @@ mod message;
 mod mouse;
 mod paging;
 mod pci;
+mod qemu;
+mod serial;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use common::{arrayqueue::ArrayQueue, boot::BootInfo, graphic::RgbColor};
+use common::{boot::BootInfo, graphic::RgbColor};
 use device::ps2;
 use graphic::{
     console,
@@ -109,6 +111,9 @@ fn main(boot_info: &BootInfo) -> ! {
 
     mouse::init(100, 100, RgbColor::from(0x28282800));
 
+    #[cfg(test)]
+    test_main();
+
     kprintln!("{} * {}", frame_buffer::height(), frame_buffer::width());
     kprintln!("It didn't crash.");
     loop {
@@ -120,6 +125,51 @@ fn main(boot_info: &BootInfo) -> ! {
     }
 }
 
+trait Testable {
+    fn run(&self) -> ();
+}
+
+impl<T> Testable for T
+where
+    T: Fn(),
+{
+    fn run(&self) -> () {
+        serial_print!("{}...\t", core::any::type_name::<T>());
+        self();
+        serial_println!("[ok]");
+    }
+}
+
+#[cfg(test)]
+fn test_runner(tests: &[&dyn Testable]) {
+    kprintln!("Running {} tests", tests.len());
+
+    for test in tests {
+        test.run();
+    }
+
+    qemu::exit_qemu(qemu::QemuExitCode::Success);
+}
+
+#[test_case]
+fn tribial_assertion() {
+    assert_eq!(1, 1);
+}
+
+#[cfg(test)]
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    use qemu::exit_qemu;
+
+    serial_println!("[failed]\n");
+    serial_println!("Error: {}\n", info);
+    exit_qemu(qemu::QemuExitCode::Failed);
+    loop {
+        unsafe { asm!("hlt") }
+    }
+}
+
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     kprintln!("[panic]");
