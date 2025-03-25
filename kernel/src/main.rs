@@ -107,7 +107,8 @@ fn main(boot_info: &BootInfo) -> ! {
     interrupts::init();
     x86_64::instructions::interrupts::enable();
 
-    //phys_mem_manager::mem_manager().init(&boot_info.memory_map);
+    frame_manager::init(&boot_info.memory_map);
+    allocator::init();
 
     mouse::init(100, 100, RgbColor::from(0x28282800));
 
