@@ -1,13 +1,11 @@
-pub mod bump_allocator;
-pub mod linked_list_allocator;
+mod bump_allocator;
+mod fixed_size_block_allocator;
+mod linked_list_allocator;
 
-use alloc::{boxed::Box, vec::Vec};
-use core::{alloc::GlobalAlloc, ptr::null_mut};
+use fixed_size_block_allocator::FixedSizeBlockAllocator;
 use linked_list_allocator::LinkedListAllocator;
 
-use bump_allocator::BumpAllocator;
-
-use crate::{frame_manager, kprintln};
+use crate::frame_manager;
 
 pub struct Locked<A> {
     inner: spin::Mutex<A>,
@@ -35,7 +33,7 @@ pub fn align_up(addr: usize, align: usize) -> usize {
 const HEAP_FRAME_COUNT: usize = 64 * 512;
 
 #[global_allocator]
-static ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(LinkedListAllocator::new());
+static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
 
 pub fn init() {
     let heap_frame_head =
@@ -48,6 +46,8 @@ pub fn init() {
 
 #[test_case]
 fn large_vec() {
+    use alloc::vec::Vec;
+
     let n = 1000;
     let mut vec = Vec::new();
     for i in 0..n {
@@ -58,6 +58,8 @@ fn large_vec() {
 
 #[test_case]
 fn simple_allocation() {
+    use alloc::boxed::Box;
+
     let heap_value_1 = Box::new(41);
     let heap_value_2 = Box::new(13);
     assert_eq!(*heap_value_1, 41);
@@ -66,6 +68,8 @@ fn simple_allocation() {
 
 #[test_case]
 fn many_boxes_long_lived() {
+    use alloc::boxed::Box;
+
     let long_lived = Box::new(1);
     for i in 0..HEAP_FRAME_COUNT * frame_manager::BYTES_PER_FRAME {
         let x = Box::new(i);
