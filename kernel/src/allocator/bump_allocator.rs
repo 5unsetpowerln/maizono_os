@@ -3,7 +3,7 @@ use core::ptr;
 
 use super::{Locked, align_up};
 
-pub struct BumpAllocator {
+pub(crate) struct BumpAllocator {
     heap_start: usize,
     heap_end: usize,
     next: usize,
@@ -11,7 +11,7 @@ pub struct BumpAllocator {
 }
 
 impl BumpAllocator {
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         BumpAllocator {
             heap_start: 0,
             heap_end: 0,
@@ -20,7 +20,7 @@ impl BumpAllocator {
         }
     }
 
-    pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
+    pub(crate) unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
         self.heap_start = heap_start;
         self.heap_end = heap_start + heap_size;
         self.next = heap_start;

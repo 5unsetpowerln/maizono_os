@@ -1,9 +1,11 @@
-pub mod bump;
+pub mod bump_allocator;
+pub mod linked_list_allocator;
 
 use alloc::{boxed::Box, vec::Vec};
 use core::{alloc::GlobalAlloc, ptr::null_mut};
+use linked_list_allocator::LinkedListAllocator;
 
-use bump::BumpAllocator;
+use bump_allocator::BumpAllocator;
 
 use crate::{frame_manager, kprintln};
 
@@ -30,17 +32,16 @@ pub fn align_up(addr: usize, align: usize) -> usize {
     (addr + align - 1) & !(align - 1)
 }
 
-#[global_allocator]
-static ALLOCATOR: Locked<BumpAllocator> = Locked::new(BumpAllocator::new());
+const HEAP_FRAME_COUNT: usize = 64 * 512;
 
-// pub fn init(heap_start: usize, heap_size: usize) {
+#[global_allocator]
+static ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(LinkedListAllocator::new());
+
 pub fn init() {
-    // let heap_start =
-    let heap_frame_count = 64 * 512;
     let heap_frame_head =
-        frame_manager::alloc(heap_frame_count).expect("failed to allocate frames for heap");
+        frame_manager::alloc(HEAP_FRAME_COUNT).expect("failed to allocate frames for heap");
     let heap_start = heap_frame_head.to_bytes();
-    let heap_size = heap_frame_count * frame_manager::BYTES_PER_FRAME;
+    let heap_size = HEAP_FRAME_COUNT * frame_manager::BYTES_PER_FRAME;
 
     unsafe { ALLOCATOR.lock().init(heap_start, heap_size) };
 }
@@ -61,4 +62,14 @@ fn simple_allocation() {
     let heap_value_2 = Box::new(13);
     assert_eq!(*heap_value_1, 41);
     assert_eq!(*heap_value_2, 13);
+}
+
+#[test_case]
+fn many_boxes_long_lived() {
+    let long_lived = Box::new(1);
+    for i in 0..HEAP_FRAME_COUNT * frame_manager::BYTES_PER_FRAME {
+        let x = Box::new(i);
+        assert_eq!(*x, i);
+    }
+    assert_eq!(*long_lived, 1);
 }
