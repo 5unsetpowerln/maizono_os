@@ -25,6 +25,7 @@ mod paging;
 mod pci;
 mod qemu;
 mod serial;
+mod timer;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -102,7 +103,7 @@ fn main(boot_info: &BootInfo) -> ! {
     // timer::init_local_apic_timer();
     // timer::start_local_apic_timer();
 
-    ps2::init();
+    ps2::init(true, false);
     x86_64::instructions::interrupts::disable();
     interrupts::init();
     x86_64::instructions::interrupts::enable();

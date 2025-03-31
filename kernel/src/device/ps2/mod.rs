@@ -31,7 +31,7 @@ pub fn keyboard() -> &'static Mutex<Keyboard> {
     }
 }
 
-pub fn init() {
+pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
     // https://wiki.osdev.org/%228042%22_PS/2_Controller#Initialising%20the%20PS/2%20Controller
 
     let mut controller = Controller::new();
@@ -130,7 +130,7 @@ pub fn init() {
         .unwrap_or_else(|err| panic!("failed to reset the mouse: {:?}", err));
 
     // enable mouse's data-reporting
-    if second_port_works {
+    if second_port_works && mouse_enabled {
         unsafe { mouse.enable_data_reporting() }.unwrap_or_else(|err| {
             panic!("failed to enable data-reporting of the mouse: {:?}", err)
         });
