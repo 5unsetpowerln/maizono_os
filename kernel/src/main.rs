@@ -11,7 +11,6 @@ extern crate alloc;
 
 mod acpi;
 mod allocator;
-mod arch;
 mod device;
 mod error;
 mod frame_manager;
@@ -36,6 +35,7 @@ use graphic::{
     console,
     frame_buffer::{self},
 };
+use uefi::println;
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -100,8 +100,6 @@ fn main(boot_info: &BootInfo) -> ! {
     kprintln!("rsdp_addr: 0x{:X}", rsdp_addr.get());
 
     unsafe { acpi::init(rsdp_addr) };
-    // timer::init_local_apic_timer();
-    // timer::start_local_apic_timer();
 
     ps2::init(true, false);
     x86_64::instructions::interrupts::disable();
@@ -111,13 +109,17 @@ fn main(boot_info: &BootInfo) -> ! {
     frame_manager::init(&boot_info.memory_map);
     allocator::init();
 
-    mouse::init(100, 100, RgbColor::from(0x28282800));
+    timer::init_local_apic_timer();
+    timer::start_local_apic_timer();
+    kprintln!("{}", timer::local_apic_timer_elapsed());
+
+    // mouse::init(100, 100, RgbColor::from(0x28282800));
 
     #[cfg(test)]
     test_main();
 
     kprintln!("{} * {}", frame_buffer::height(), frame_buffer::width());
-    kprintln!("It didn't crash.");
+    kprintln!("It didn't crash:)");
     loop {
         if message::count() > 0 {
             message::handle_message();

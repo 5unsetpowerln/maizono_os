@@ -1,16 +1,14 @@
-use crate::{
-    acpi,
-    arch::{self, IoApic, LocalApic, read_msr, write_msr},
-    device::ps2,
-    message,
-};
+pub mod apic;
+
+use crate::{acpi, device::ps2};
+use apic::{IoApic, LocalApic, write_msr};
 use spin::{Lazy, Once};
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
 use crate::kprintln;
 
-static LOCAL_APIC: Once<LocalApic> = Once::new();
+pub static LOCAL_APIC: Once<LocalApic> = Once::new();
 
 const EXTERNAL_IRQ_OFFSET: u8 = 32;
 
@@ -31,10 +29,10 @@ impl IRQ {
 
 #[repr(u8)]
 pub enum InterruptVector {
-    EXTERNAL_IRQ_TIMER = EXTERNAL_IRQ_OFFSET + IRQ::Timer.as_u8(),
-    EXTERNAL_IRQ_KEYBOARD = EXTERNAL_IRQ_OFFSET + IRQ::Keyboard.as_u8(),
-    EXTERNAL_IRQ_MOUSE = EXTERNAL_IRQ_OFFSET + IRQ::Mouse.as_u8(),
-    EXTERNAL_IRQ_ERROR = EXTERNAL_IRQ_OFFSET + IRQ::Error.as_u8(),
+    ExternalIrqTimer = EXTERNAL_IRQ_OFFSET + IRQ::Timer.as_u8(),
+    ExternalIrqKeyboard = EXTERNAL_IRQ_OFFSET + IRQ::Keyboard.as_u8(),
+    ExternalIrqMouse = EXTERNAL_IRQ_OFFSET + IRQ::Mouse.as_u8(),
+    ExternalIrqError = EXTERNAL_IRQ_OFFSET + IRQ::Error.as_u8(),
     LocalAPICTimer = 0x41,
 }
 
@@ -49,10 +47,10 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt.breakpoint.set_handler_fn(breakpoint_handler);
     idt.double_fault.set_handler_fn(double_fault_handler);
     idt[InterruptVector::LocalAPICTimer as u8].set_handler_fn(timer_interrupt_handler);
-    idt[InterruptVector::EXTERNAL_IRQ_TIMER.as_u8()].set_handler_fn(timer_interrupt_handler);
-    idt[InterruptVector::EXTERNAL_IRQ_KEYBOARD.as_u8()]
+    idt[InterruptVector::ExternalIrqTimer.as_u8()].set_handler_fn(timer_interrupt_handler);
+    idt[InterruptVector::ExternalIrqKeyboard.as_u8()]
         .set_handler_fn(ps2::keyboard::interrupt_handler);
-    idt[InterruptVector::EXTERNAL_IRQ_MOUSE.as_u8()].set_handler_fn(ps2::mouse::interrupt_handler);
+    idt[InterruptVector::ExternalIrqMouse.as_u8()].set_handler_fn(ps2::mouse::interrupt_handler);
 
     idt
 });
@@ -153,12 +151,12 @@ fn init_apic() {
         unsafe {
             io_apic.set_redirection_entry_at(
                 IRQ::Keyboard as u32,
-                InterruptVector::EXTERNAL_IRQ_KEYBOARD as u64 | cpu0,
+                InterruptVector::ExternalIrqKeyboard as u64 | cpu0,
             );
 
             io_apic.set_redirection_entry_at(
                 IRQ::Mouse as u32,
-                InterruptVector::EXTERNAL_IRQ_MOUSE as u64 | cpu0,
+                InterruptVector::ExternalIrqMouse as u64 | cpu0,
             );
         }
     }

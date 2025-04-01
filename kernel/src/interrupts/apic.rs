@@ -4,12 +4,14 @@ use core::ptr::{read_volatile, write_volatile};
 pub unsafe fn read_msr(msr: u32) -> u64 {
     let high: u32;
     let low: u32;
-    asm!(
-        "rdmsr",
-        in("ecx") msr,
-        out("edx") high,
-        out("eax") low,
-    );
+    unsafe {
+        asm!(
+            "rdmsr",
+            in("ecx") msr,
+            out("edx") high,
+            out("eax") low,
+        );
+    }
     ((high as u64) << 32) | (low as u64)
 }
 
@@ -17,12 +19,14 @@ pub unsafe fn write_msr(msr: u32, value: u64) {
     let low = value as u32;
     let high = (value >> 32) as u32;
 
-    asm!(
-        "wrmsr",
-        in("ecx") msr,
-        in("edx") high,
-        in("eax") low,
-    );
+    unsafe {
+        asm!(
+            "wrmsr",
+            in("ecx") msr,
+            in("edx") high,
+            in("eax") low,
+        );
+    }
 }
 
 // Pointer to local APIC is NOT thread-safe but, this field is private and all actions to write are done through the methods.
@@ -137,20 +141,26 @@ impl IoApic {
     }
 
     unsafe fn read(&self, reg: u32) -> u32 {
-        write_volatile(&mut (*self.ptr).reg, reg);
-        return read_volatile(&(*self.ptr).data);
+        unsafe {
+            write_volatile(&mut (*self.ptr).reg, reg);
+            return read_volatile(&(*self.ptr).data);
+        }
     }
 
     unsafe fn write(&self, reg: u32, data: u32) {
-        write_volatile(&mut (*self.ptr).reg, reg);
-        write_volatile(&mut (*self.ptr).data, data);
+        unsafe {
+            write_volatile(&mut (*self.ptr).reg, reg);
+            write_volatile(&mut (*self.ptr).data, data);
+        }
     }
 
     /// index: irq
     /// value: vector
     pub unsafe fn set_redirection_entry_at(&self, index: u32, value: u64) {
-        self.write(0x10 + 2 * index, value as u32);
-        self.write(0x10 + 2 * index + 1, (value >> 32) as u32);
+        unsafe {
+            self.write(0x10 + 2 * index, value as u32);
+            self.write(0x10 + 2 * index + 1, (value >> 32) as u32);
+        }
     }
 
     // Get the maximum amount of redirection entries in bits 16-23. All other bits are reserved. Read only.
