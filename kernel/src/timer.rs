@@ -1,20 +1,27 @@
-use core::ptr::write_volatile;
+use core::{cmp::Ordering, ptr::write_volatile};
 
-use spin::Mutex;
+use alloc::collections::{BinaryHeap, vec_deque::VecDeque};
+use spin::{Lazy, Mutex};
 
-use crate::{interrupts, kprintln};
+use crate::{interrupts, kprintln, message::Message};
 
 const COUNT_MAX: u32 = 0xffffffff;
 
-static TIMER_MANAGER: Mutex<TimerManager> = Mutex::new(TimerManager::new());
+static TIMER_MANAGER: Lazy<Mutex<TimerManager>> = Lazy::new(|| Mutex::new(TimerManager::new()));
 
 struct TimerManager {
+    timers: BinaryHeap<Timer>,
     tick: u64,
 }
 
 impl TimerManager {
-    const fn new() -> Self {
-        Self { tick: 0 }
+    fn new() -> Self {
+        let mut timers = BinaryHeap::new();
+        timers.push(Timer {
+            value: -1,
+            timeout: u64::MAX,
+        });
+        Self { timers, tick: 0 }
     }
 
     fn tick(&mut self) {
@@ -23,6 +30,38 @@ impl TimerManager {
 
     fn current_tick(&self) -> u64 {
         self.tick
+    }
+
+    fn add_timer(&mut self, timer: Timer) {
+        self.timers.push(timer);
+    }
+}
+
+#[derive(Eq, PartialEq)]
+struct Timer {
+    value: i32,
+    timeout: u64,
+}
+
+impl Timer {
+    fn timeout(&self) -> u64 {
+        self.timeout
+    }
+
+    fn value(&self) -> i32 {
+        self.value
+    }
+}
+
+impl Ord for Timer {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.timeout.cmp(&self.timeout)
+    }
+}
+
+impl PartialOrd for Timer {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
     }
 }
 

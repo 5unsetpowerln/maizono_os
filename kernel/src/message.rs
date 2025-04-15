@@ -2,6 +2,7 @@ use common::arrayqueue::{ArrayQueue, LockLessArrayQueue};
 use spin::Mutex;
 
 use crate::device::ps2;
+use crate::types::Queue;
 use crate::{kprintln, mouse};
 
 pub enum Message {
@@ -9,7 +10,8 @@ pub enum Message {
     PS2KeyboardInterrupt,
 }
 
-static QUEUE: Mutex<ArrayQueue<Message, 128>> = Mutex::new(ArrayQueue::new());
+// static QUEUE: Mutex<ArrayQueue<Message, 128>> = Mutex::new(ArrayQueue::new());
+static QUEUE: Mutex<Queue<Message>> = Mutex::new(Queue::new());
 
 pub fn handle_message() {
     x86_64::instructions::interrupts::disable();
@@ -43,7 +45,7 @@ pub fn enqueue(message: Message) {
 pub fn count() -> usize {
     x86_64::instructions::interrupts::disable();
     let queue = QUEUE.lock();
-    let count = queue.count();
+    let count = queue.len();
     x86_64::instructions::interrupts::enable();
     count
 }

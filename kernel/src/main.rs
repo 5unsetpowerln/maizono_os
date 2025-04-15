@@ -25,6 +25,7 @@ mod pci;
 mod qemu;
 mod serial;
 mod timer;
+mod types;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
