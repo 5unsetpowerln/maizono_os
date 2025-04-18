@@ -6,12 +6,8 @@ mod kernel;
 use core::arch::asm;
 
 extern crate alloc;
-use alloc::format;
 use anyhow::Error;
 use anyhow::Result;
-use anyhow::anyhow;
-use anyhow::bail;
-use boot::MemoryType;
 use common::address::PhysPtr;
 use common::boot::BootInfo;
 use common::graphic::GraphicInfo;
@@ -22,13 +18,12 @@ use log::info;
 use runtime::Time;
 use uefi::boot::ScopedProtocol;
 use uefi::helpers;
-use uefi::mem::memory_map::MemoryMap;
 use uefi::proto::console::gop::GraphicsOutput;
 use uefi::table::cfg::ACPI2_GUID;
 use uefi::{
     CStr16,
     prelude::*,
-    proto::media::file::{Directory, File, FileAttribute, FileMode, FileType},
+    proto::media::file::{Directory, FileAttribute},
 };
 
 #[entry]
