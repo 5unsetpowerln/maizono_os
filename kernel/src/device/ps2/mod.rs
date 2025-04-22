@@ -130,7 +130,7 @@ pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
         .unwrap_or_else(|err| panic!("failed to reset the mouse: {:?}", err));
 
     // enable mouse's data-reporting
-    if second_port_works && mouse_enabled {
+    if second_port_works {
         unsafe { mouse.enable_data_reporting() }.unwrap_or_else(|err| {
             panic!("failed to enable data-reporting of the mouse: {:?}", err)
         });

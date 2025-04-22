@@ -102,12 +102,12 @@ fn main(boot_info: &BootInfo) -> ! {
 
     unsafe { acpi::init(rsdp_addr) };
 
-    ps2::init(true, false);
+    ps2::init(true, true);
     x86_64::instructions::interrupts::disable();
     interrupts::init();
     x86_64::instructions::interrupts::enable();
 
-    timer::init_local_apic_timer();
+    // timer::init_local_apic_timer();
 
     frame_manager::init(&boot_info.memory_map);
     allocator::init();
@@ -116,7 +116,7 @@ fn main(boot_info: &BootInfo) -> ! {
     // timer::start_local_apic_timer();
     // kprintln!("{}", timer::local_apic_timer_elapsed());
 
-    // mouse::init(100, 100, RgbColor::from(0x28282800));
+    mouse::init(100, 100, RgbColor::from(0x28282800));
 
     #[cfg(test)]
     test_main();

@@ -1,9 +1,8 @@
-use common::arrayqueue::{ArrayQueue, LockLessArrayQueue};
 use spin::Mutex;
 
 use crate::device::ps2;
 use crate::types::Queue;
-use crate::{kprintln, mouse, timer};
+use crate::{kprintln, mouse};
 
 pub enum Message {
     PS2MouseInterrupt,
@@ -19,11 +18,9 @@ pub fn handle_message() {
     if let Some(message) = QUEUE.lock().dequeue() {
         match message {
             Message::PS2KeyboardInterrupt => {
-                timer::start_local_apic_timer();
-                kprintln!("key pressed");
-                let erapsed = timer::local_apic_timer_elapsed();
-                timer::stop_local_apic_timer();
-                kprintln!("kbd observer erapsed: {}", erapsed);
+                // must receive data to prevent the block
+                let data = unsafe { ps2::keyboard().lock().read_data() };
+                kprintln!("{:?}", data);
             }
             Message::PS2MouseInterrupt => {
                 let _ = unsafe {
@@ -36,7 +33,6 @@ pub fn handle_message() {
                 };
             }
             Message::LocalAPICTimerInterrupt => {
-                // timer::
                 kprintln!("local apic timer interrupt occured!");
             }
         }
