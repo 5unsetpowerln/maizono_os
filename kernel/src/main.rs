@@ -25,6 +25,7 @@ mod pci;
 mod qemu;
 mod serial;
 mod timer;
+mod types;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -106,12 +107,14 @@ fn main(boot_info: &BootInfo) -> ! {
     interrupts::init();
     x86_64::instructions::interrupts::enable();
 
+    timer::init_local_apic_timer();
+
     frame_manager::init(&boot_info.memory_map);
     allocator::init();
 
-    timer::init_local_apic_timer();
-    timer::start_local_apic_timer();
-    kprintln!("{}", timer::local_apic_timer_elapsed());
+    // timer::init_local_apic_timer();
+    // timer::start_local_apic_timer();
+    // kprintln!("{}", timer::local_apic_timer_elapsed());
 
     // mouse::init(100, 100, RgbColor::from(0x28282800));
 

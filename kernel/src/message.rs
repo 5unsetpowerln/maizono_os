@@ -2,21 +2,28 @@ use common::arrayqueue::{ArrayQueue, LockLessArrayQueue};
 use spin::Mutex;
 
 use crate::device::ps2;
-use crate::{kprintln, mouse};
+use crate::types::Queue;
+use crate::{kprintln, mouse, timer};
 
 pub enum Message {
     PS2MouseInterrupt,
     PS2KeyboardInterrupt,
+    LocalAPICTimerInterrupt,
 }
 
-static QUEUE: Mutex<ArrayQueue<Message, 128>> = Mutex::new(ArrayQueue::new());
+// static QUEUE: Mutex<ArrayQueue<Message, 128>> = Mutex::new(ArrayQueue::new());
+static QUEUE: Mutex<Queue<Message>> = Mutex::new(Queue::new());
 
 pub fn handle_message() {
     x86_64::instructions::interrupts::disable();
     if let Some(message) = QUEUE.lock().dequeue() {
         match message {
             Message::PS2KeyboardInterrupt => {
-                kprintln!("{:?}", unsafe { ps2::keyboard().lock().read_data() });
+                timer::start_local_apic_timer();
+                kprintln!("key pressed");
+                let erapsed = timer::local_apic_timer_elapsed();
+                timer::stop_local_apic_timer();
+                kprintln!("kbd observer erapsed: {}", erapsed);
             }
             Message::PS2MouseInterrupt => {
                 let _ = unsafe {
@@ -27,6 +34,10 @@ pub fn handle_message() {
                         _ => {}
                     })
                 };
+            }
+            Message::LocalAPICTimerInterrupt => {
+                // timer::
+                kprintln!("local apic timer interrupt occured!");
             }
         }
     }
@@ -43,7 +54,7 @@ pub fn enqueue(message: Message) {
 pub fn count() -> usize {
     x86_64::instructions::interrupts::disable();
     let queue = QUEUE.lock();
-    let count = queue.count();
+    let count = queue.len();
     x86_64::instructions::interrupts::enable();
     count
 }
