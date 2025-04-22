@@ -3,11 +3,12 @@ use spin::Mutex;
 
 use crate::device::ps2;
 use crate::types::Queue;
-use crate::{kprintln, mouse};
+use crate::{kprintln, mouse, timer};
 
 pub enum Message {
     PS2MouseInterrupt,
     PS2KeyboardInterrupt,
+    LocalAPICTimerInterrupt,
 }
 
 // static QUEUE: Mutex<ArrayQueue<Message, 128>> = Mutex::new(ArrayQueue::new());
@@ -18,7 +19,11 @@ pub fn handle_message() {
     if let Some(message) = QUEUE.lock().dequeue() {
         match message {
             Message::PS2KeyboardInterrupt => {
-                kprintln!("{:?}", unsafe { ps2::keyboard().lock().read_data() });
+                timer::start_local_apic_timer();
+                kprintln!("key pressed");
+                let erapsed = timer::local_apic_timer_elapsed();
+                timer::stop_local_apic_timer();
+                kprintln!("kbd observer erapsed: {}", erapsed);
             }
             Message::PS2MouseInterrupt => {
                 let _ = unsafe {
@@ -29,6 +34,10 @@ pub fn handle_message() {
                         _ => {}
                     })
                 };
+            }
+            Message::LocalAPICTimerInterrupt => {
+                // timer::
+                kprintln!("local apic timer interrupt occured!");
             }
         }
     }

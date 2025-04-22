@@ -1,12 +1,13 @@
 pub mod apic;
 
+use crate::message::Message;
 use crate::{acpi, device::ps2};
 use apic::{IoApic, LocalApic, write_msr};
 use spin::{Lazy, Once};
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
-use crate::kprintln;
+use crate::{kprintln, message};
 
 pub static LOCAL_APIC: Once<LocalApic> = Once::new();
 
@@ -188,5 +189,6 @@ extern "x86-interrupt" fn double_fault_handler(
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     // timer::local_apic_timer_on_interrupt();
+    message::enqueue(Message::LocalAPICTimerInterrupt);
     notify_end_of_interrupt();
 }
