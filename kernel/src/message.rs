@@ -2,7 +2,7 @@ use spin::Mutex;
 
 use crate::device::ps2;
 use crate::types::Queue;
-use crate::{kprintln, mouse};
+use crate::{kprintln, mouse, timer};
 
 pub enum Message {
     PS2MouseInterrupt,
@@ -26,7 +26,11 @@ pub fn handle_message() {
                 let _ = unsafe {
                     ps2::mouse().lock().receive_events(|event| match event {
                         mouse::MouseEvent::Move { displacement } => {
+                            timer::start_local_apic_timer();
                             mouse::move_relative(displacement);
+                            let elapsed = timer::local_apic_timer_elapsed();
+                            timer::stop_local_apic_timer();
+                            kprintln!("elapsed: 0x{:x}", elapsed);
                         }
                         _ => {}
                     })
