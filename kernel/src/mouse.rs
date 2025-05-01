@@ -1,10 +1,7 @@
-use common::{
-    graphic::{Pixel, RgbColor},
-    matrix::Vec2,
-};
+use common::{graphic::RgbColor, matrix::Vec2};
 use spin::{Lazy, Mutex};
 
-use crate::{device::ps2, error::Error, kprintln};
+use crate::{device::ps2, error::Error, graphic::PixelWriter, kprintln};
 
 use super::frame_buffer;
 
@@ -107,8 +104,12 @@ impl MouseCursor {
     }
 }
 
-fn write_pixel_ignore_outside_buffer_error(x: usize, y: usize, pixel: Pixel) {
-    if let Err(e) = frame_buffer::write_pixel(x, y, pixel) {
+fn write_pixel_ignore_outside_buffer_error(x: usize, y: usize, pixel: RgbColor) {
+    if let Err(e) = unsafe {
+        frame_buffer::get_frame_buffer_reference()
+            .lock()
+            .write_pixel(x, y, pixel)
+    } {
         if let Error::FrameBufferError(frame_buffer::FrameBufferError::OutsideBufferError) = e {
         } else {
             panic!("{:?}", e);

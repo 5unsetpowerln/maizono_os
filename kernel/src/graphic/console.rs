@@ -1,6 +1,7 @@
 use core::{
     ascii,
     fmt::{self},
+    mem::MaybeUninit,
     str,
 };
 
@@ -11,14 +12,15 @@ use thiserror_no_std::Error;
 use crate::error::Result;
 
 use super::{
+    PixelWriter,
     font::{self, CHARACTER_HEIGHT, CHARACTER_WIDTH},
-    frame_buffer,
 };
 
 const ROWS: usize = 25;
 const COLUMNS: usize = 150;
 
-static CONSOLE: Mutex<Console> = Mutex::new(Console::new_empty());
+// pub static mut CONSOLE: MaybeUninit<Mutex<Console>> = MaybeUninit::uninit();
+static CONSOLE: Mutex<Console> = Mutex::new(Console::new());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ConsoleError {
@@ -64,48 +66,67 @@ impl<const CAP: usize> Line<CAP> {
     }
 }
 
+// pub struct Console<W: PixelWriter> {
 pub struct Console {
     buffer: [Line<COLUMNS>; ROWS],
     bg_color: RgbColor,
     fg_color: RgbColor,
     cursor_row: usize,
     cursor_column: usize,
+    // writer: Arc<Mutex<Box<dyn PixelWriter>>>,
+    writer: MaybeUninit<&'static Mutex<dyn PixelWriter + Send>>,
 }
 
+// impl<W: PixelWriter> fmt::Write for Console<W> {
 impl fmt::Write for Console {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.print(s);
+        // self.print(s);
         Ok(())
     }
 }
 
+// impl<W: PixelWriter> Console<W> {
 impl Console {
-    const fn new_empty() -> Self {
+    const fn new() -> Self {
         Self {
             buffer: [Line::<COLUMNS>::null(); ROWS],
             bg_color: RgbColor::rgb(0x28, 0x28, 0x28),
             fg_color: RgbColor::rgb(0x28, 0x28, 0x28),
             cursor_row: 0,
             cursor_column: 0,
+            writer: MaybeUninit::uninit(),
         }
     }
 
-    pub fn init(&mut self, bg_color: RgbColor, fg_color: RgbColor) -> Result<()> {
-        frame_buffer::fill_rect(
+    fn init(
+        &mut self,
+        writer: &'static Mutex<dyn PixelWriter + Send>,
+        bg_color: RgbColor,
+        fg_color: RgbColor,
+    ) -> Result<()> {
+        writer.lock().fill_rect(
             0,
             0,
             COLUMNS * CHARACTER_WIDTH,
             ROWS * CHARACTER_HEIGHT,
             bg_color,
         )?;
+
         *self = Self {
             buffer: [Line::<COLUMNS>::null(); ROWS],
             bg_color,
             fg_color,
             cursor_row: 0,
             cursor_column: 0,
+            writer: MaybeUninit::new(writer),
         };
+
         Ok(())
+    }
+
+    unsafe fn writer_locked(&self) -> MutexGuard<'static, dyn PixelWriter + Send> {
+        unsafe { (&*self.writer.as_ptr()).lock() }
     }
 
     fn new_line(&mut self) {
@@ -113,27 +134,30 @@ impl Console {
         if self.cursor_row < ROWS - 1 {
             self.cursor_row += 1;
         } else {
-            frame_buffer::fill_rect(
-                0,
-                0,
-                COLUMNS * CHARACTER_WIDTH,
-                ROWS * CHARACTER_HEIGHT,
-                self.bg_color.into(),
-            )
-            .expect("Failed to fill up the console.");
+            unsafe { self.writer_locked() }
+                .fill_rect(
+                    0,
+                    0,
+                    COLUMNS * CHARACTER_WIDTH,
+                    ROWS * CHARACTER_HEIGHT,
+                    self.bg_color.into(),
+                )
+                .expect("Failed to fill up the console.");
 
             for row in 0..ROWS - 1 {
                 self.buffer[row] = self.buffer[row + 1];
+                let mut writer = unsafe { self.writer_locked() };
 
                 let line = self.buffer[row];
                 for (i, c) in line.chars[0..line.length].iter().enumerate() {
-                    frame_buffer::write_char(
-                        font::CHARACTER_WIDTH * i,
-                        font::CHARACTER_HEIGHT * row,
-                        *c,
-                        self.fg_color,
-                    )
-                    .unwrap();
+                    writer
+                        .write_char(
+                            font::CHARACTER_WIDTH * i,
+                            font::CHARACTER_HEIGHT * row,
+                            *c,
+                            self.fg_color,
+                        )
+                        .unwrap();
                 }
             }
 
@@ -146,13 +170,14 @@ impl Console {
             if *c == ascii::Char::LineFeed {
                 self.new_line()
             } else if self.cursor_column < COLUMNS - 1 {
-                frame_buffer::write_char(
-                    font::CHARACTER_WIDTH * self.cursor_column,
-                    font::CHARACTER_HEIGHT * self.cursor_row,
-                    *c,
-                    self.fg_color,
-                )
-                .unwrap();
+                unsafe { self.writer_locked() }
+                    .write_char(
+                        font::CHARACTER_WIDTH * self.cursor_column,
+                        font::CHARACTER_HEIGHT * self.cursor_row,
+                        *c,
+                        self.fg_color,
+                    )
+                    .unwrap();
                 self.buffer[self.cursor_row].push(*c).unwrap();
                 self.cursor_column += 1;
             }
@@ -160,18 +185,25 @@ impl Console {
     }
 }
 
-pub fn console() -> Result<MutexGuard<'static, Console>> {
-    match { CONSOLE.try_lock() } {
-        Some(lock) => Ok(lock),
-        None => Err(ConsoleError::ConsoleLockError.into()),
-    }
+pub fn init(
+    writer: &'static Mutex<dyn PixelWriter + Send>,
+    bg_color: RgbColor,
+    fg_color: RgbColor,
+) -> Result<()> {
+    let mut console = CONSOLE.lock();
+    console.init(writer, bg_color, fg_color)?;
+    Ok(())
+}
+
+pub fn get_console_reference() -> &'static Mutex<Console> {
+    &CONSOLE
 }
 
 #[macro_export]
 macro_rules! kprint {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        crate::graphic::console::console().unwrap().write_fmt(format_args!($($arg)*)).unwrap();
+        crate::graphic::console::get_console_reference().lock().write_fmt(format_args!($($arg)*)).unwrap();
     }};
 }
 

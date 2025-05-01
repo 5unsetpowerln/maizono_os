@@ -1,13 +1,11 @@
-use core::ascii;
-
 use crate::error::Result;
-use common::graphic::{GraphicInfo, Pixel, PixelFormat, RgbColor};
-use spin::{Mutex, MutexGuard, Once};
+use common::graphic::{GraphicInfo, PixelFormat, RgbColor};
+use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
-use super::font::{self, GARBLED_FONT, U8_FONT};
+use super::PixelWriter;
 
-static FRAME_BUF: Mutex<FrameBuf> = Mutex::new(FrameBuf::new());
+static FRAME_BUFFER: Mutex<FrameBuffer> = Mutex::new(FrameBuffer::new());
 static FRAME_BUFFER_WIDTH: Once<usize> = Once::new();
 static FRAME_BUFFER_HEIGHT: Once<usize> = Once::new();
 
@@ -26,7 +24,7 @@ pub enum FrameBufferError {
 }
 
 #[derive(Clone, Debug)]
-pub struct FrameBuf {
+pub struct FrameBuffer {
     width: usize,
     height: usize,
     bytes_per_pixel: usize,
@@ -34,10 +32,10 @@ pub struct FrameBuf {
     pixel_format: PixelFormat,
     framebuf_addr: u64,
     framebuf_size: usize,
-    write_pixel: fn(&mut FrameBuf, usize, usize, Pixel) -> Result<()>,
+    write_pixel: fn(&mut FrameBuffer, usize, usize, RgbColor) -> Result<()>,
 }
 
-impl FrameBuf {
+impl FrameBuffer {
     const fn new() -> Self {
         Self {
             width: 0,
@@ -69,103 +67,26 @@ impl FrameBuf {
         Ok(())
     }
 
-    fn write_pixel(&mut self, x: usize, y: usize, pixel: Pixel) -> Result<()> {
-        (self.write_pixel)(self, x, y, pixel)
-    }
-
-    fn fill(&mut self, color: RgbColor) -> Result<()> {
-        for x in 0..self.width {
-            for y in 0..self.height {
-                match self.write_pixel(x, y, color.into()) {
-                    Ok(_) => continue,
-                    Err(err) => return Err(err),
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn fill_rect(
-        &mut self,
-        x: usize,
-        y: usize,
-        width: usize,
-        height: usize,
-        color: RgbColor,
-    ) -> Result<()> {
-        for x_inner in x..x + width {
-            for y_inner in y..y + height {
-                self.write_pixel(x_inner, y_inner, color.into())?;
-            }
-        }
-        Ok(())
-    }
-
-    fn draw_rect(
-        &mut self,
-        x: usize,
-        y: usize,
-        width: usize,
-        height: usize,
-        color: RgbColor,
-    ) -> Result<()> {
-        for x_inner in x..x + width {
-            self.write_pixel(x_inner, y, color.into())?;
-            self.write_pixel(x_inner, y + height - 1, color.into())?;
-        }
-        for y_inner in y..y + height {
-            self.write_pixel(x, y_inner, color.into())?;
-            self.write_pixel(x + width - 1, y_inner, color.into())?;
-        }
-        Ok(())
-    }
-
-    fn write_char(&mut self, x: usize, y: usize, ascii: ascii::Char, fg: RgbColor) -> Result<()> {
-        let glyph_index = ascii as usize;
-        let glyph = {
-            if glyph_index >= U8_FONT.len() {
-                GARBLED_FONT
-            } else {
-                U8_FONT[glyph_index]
-            }
-        };
-
-        for (dy, row) in glyph.iter().enumerate() {
-            for dx in 0..font::CHARACTER_WIDTH {
-                if (row >> 7 - dx) & 1 == 1 {
-                    self.write_pixel(x + dx, y + dy, fg.into())?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn write_string(&mut self, x: usize, y: usize, data: &str, fg: RgbColor) -> Result<()> {
-        for (i, c) in data
-            .as_ascii()
-            .expect("non ascii string is given.")
-            .iter()
-            .enumerate()
-        {
-            self.write_char(x + i * font::CHARACTER_WIDTH * 2, y, c.clone(), fg)?;
-        }
-        Ok(())
-    }
-
     fn is_inside_buffer(&self, x: usize, y: usize) -> bool {
         !(x >= self.width || y >= self.height)
     }
+}
 
-    fn get_width(&self) -> usize {
+impl PixelWriter for FrameBuffer {
+    fn write_pixel(&mut self, x: usize, y: usize, pixel: RgbColor) -> Result<()> {
+        (self.write_pixel)(self, x, y, pixel)
+    }
+
+    fn width(&self) -> usize {
         self.width
     }
 
-    fn get_height(&self) -> usize {
+    fn height(&self) -> usize {
         self.height
     }
 }
 
-fn write_pixel_rgb(self_: &mut FrameBuf, x: usize, y: usize, pixel: Pixel) -> Result<()> {
+fn write_pixel_rgb(self_: &mut FrameBuffer, x: usize, y: usize, pixel: RgbColor) -> Result<()> {
     if !self_.is_inside_buffer(x, y) {
         return Err(FrameBufferError::OutsideBufferError.into());
     }
@@ -178,7 +99,7 @@ fn write_pixel_rgb(self_: &mut FrameBuf, x: usize, y: usize, pixel: Pixel) -> Re
     Ok(())
 }
 
-fn write_pixel_bgr(self_: &mut FrameBuf, x: usize, y: usize, mut pixel: Pixel) -> Result<()> {
+fn write_pixel_bgr(self_: &mut FrameBuffer, x: usize, y: usize, mut pixel: RgbColor) -> Result<()> {
     if !self_.is_inside_buffer(x, y) {
         return Err(FrameBufferError::OutsideBufferError.into());
     }
@@ -193,43 +114,27 @@ fn write_pixel_bgr(self_: &mut FrameBuf, x: usize, y: usize, mut pixel: Pixel) -
     Ok(())
 }
 
-fn frame_buf() -> Result<MutexGuard<'static, FrameBuf>> {
-    FRAME_BUF
-        .try_lock()
-        .ok_or(FrameBufferError::FrameBufferLockError.into())
-}
-
 pub fn init(graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
-    let mut frame_buffer = frame_buf()?;
-    frame_buffer.init(graphic_info, bg_color);
-    FRAME_BUFFER_WIDTH.call_once(|| frame_buffer.get_width());
-    FRAME_BUFFER_HEIGHT.call_once(|| frame_buffer.get_height());
+    let mut frame_buffer = FRAME_BUFFER.lock();
+
+    frame_buffer
+        .init(graphic_info, bg_color)
+        .expect("Failed to construct the FrameBuffer.");
+
+    FRAME_BUFFER_WIDTH.call_once(|| frame_buffer.width());
+    FRAME_BUFFER_HEIGHT.call_once(|| frame_buffer.height());
+
     Ok(())
 }
 
-pub fn write_pixel(x: usize, y: usize, pixel: Pixel) -> Result<()> {
-    frame_buf()?.write_pixel(x, y, pixel)?;
-    Ok(())
-}
-
-pub fn write_char(x: usize, y: usize, c: ascii::Char, fg: RgbColor) -> Result<()> {
-    frame_buf()?.write_char(x, y, c, fg)?;
-    Ok(())
-}
-
-pub fn fill(color: RgbColor) -> Result<()> {
-    frame_buf()?.fill(color)?;
-    Ok(())
-}
-
-pub fn fill_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColor) -> Result<()> {
-    frame_buf()?.fill_rect(x, y, width, height, color)?;
-    Ok(())
-}
-
-pub fn draw_rect(x: usize, y: usize, width: usize, height: usize, color: RgbColor) -> Result<()> {
-    frame_buf()?.draw_rect(x, y, width, height, color)?;
-    Ok(())
+/// Returns a static reference to the mutex-wrapped FrameBuffer.
+///
+/// Use this function is you need to pass the `FrameBuffer` as a writer to a structure like `Console`.
+///
+/// If you only need information such as the width, height, or other
+/// constants, consider using the dedicated accessor functions provided in this module instead.
+pub fn get_frame_buffer_reference() -> &'static Mutex<FrameBuffer> {
+    return &FRAME_BUFFER;
 }
 
 pub fn width() -> usize {

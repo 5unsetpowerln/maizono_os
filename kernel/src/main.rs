@@ -17,6 +17,7 @@ mod frame_manager;
 mod gdt;
 mod graphic;
 mod interrupts;
+mod layer;
 mod memory_map;
 mod message;
 mod mouse;
@@ -26,6 +27,7 @@ mod qemu;
 mod serial;
 mod timer;
 mod types;
+mod window;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -36,7 +38,6 @@ use graphic::{
     console,
     frame_buffer::{self},
 };
-use uefi::println;
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -56,11 +57,7 @@ impl KernelStack {
     }
 }
 
-fn switch_to_kernel_stack(
-    // new_entry: extern "sysv64" fn(&BootInfo) -> !,
-    new_entry: fn(&BootInfo) -> !,
-    boot_info: &BootInfo,
-) -> ! {
+fn switch_to_kernel_stack(new_entry: fn(&BootInfo) -> !, boot_info: &BootInfo) -> ! {
     unsafe {
         asm!(
             "mov rdi, {}",
@@ -82,11 +79,16 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
 }
 
 fn main(boot_info: &BootInfo) -> ! {
-    frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800)).unwrap();
-    console::console()
-        .unwrap()
-        .init(RgbColor::from(0x3c383600), RgbColor::from(0xebdbb200))
-        .unwrap();
+    frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800))
+        .expect("Failed to initialize the frame buffer.");
+
+    console::init(
+        frame_buffer::get_frame_buffer_reference(),
+        RgbColor::from(0x3c383600),
+        RgbColor::from(0xebdbb200),
+    )
+    .expect("Failed to initialize the console.");
+
     gdt::init();
     paging::init();
     pci::devices()
@@ -111,6 +113,8 @@ fn main(boot_info: &BootInfo) -> ! {
     mouse::init(100, 100, RgbColor::from(0x28282800));
     frame_manager::init(&boot_info.memory_map);
     allocator::init();
+
+    // let bg_window = Window::new(frame_buffer::width(), frame_buffer::height(), None);
 
     #[cfg(test)]
     test_main();

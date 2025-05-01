@@ -96,37 +96,37 @@ impl GraphicInfo {
 //     }
 // }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Pixel(u32);
+// #[derive(Clone, Copy, Debug)]
+// pub struct Pixel(u32);
 
-impl Pixel {
-    pub const fn new() -> Self {
-        Self(0x00000000)
-    }
+// impl Pixel {
+//     pub const fn new() -> Self {
+//         Self(0x00000000)
+//     }
 
-    pub fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self(u32::from_be_bytes([r, g, b, 0]))
-    }
+//     pub fn rgb(r: u8, g: u8, b: u8) -> Self {
+//         Self(u32::from_be_bytes([r, g, b, 0]))
+//     }
 
-    pub fn get(&self) -> u32 {
-        self.0
-    }
+//     pub fn get(&self) -> u32 {
+//         self.0
+//     }
 
-    pub fn bgr(&mut self) {
-        let r = ((self.0 & 0xff000000) >> 0x18) as u8;
-        let g = ((self.0 & 0xff0000) >> 0x10) as u8;
-        let b = ((self.0 & 0xff00) >> 0x8) as u8;
-        self.0 = u32::from_be_bytes([b, g, r, 0]);
-    }
+//     pub fn bgr(&mut self) {
+//         let r = ((self.0 & 0xff000000) >> 0x18) as u8;
+//         let g = ((self.0 & 0xff0000) >> 0x10) as u8;
+//         let b = ((self.0 & 0xff00) >> 0x8) as u8;
+//         self.0 = u32::from_be_bytes([b, g, r, 0]);
+//     }
 
-    pub fn le(&self) -> u32 {
-        u32::from_be(self.0)
-    }
+//     pub fn le(&self) -> u32 {
+//         u32::from_be(self.0)
+//     }
 
-    pub const fn from(value: u32) -> Self {
-        Self(value)
-    }
-}
+//     pub const fn from(value: u32) -> Self {
+//         Self(value)
+//     }
+// }
 
 // impl From<u32> for Pixel {
 //     fn from(value: u32) -> Self {
@@ -134,13 +134,13 @@ impl Pixel {
 //     }
 // }
 
-impl From<RgbColor> for Pixel {
-    fn from(value: RgbColor) -> Self {
-        Self(value.get() & 0xFFFFFF00)
-    }
-}
+// impl From<RgbColor> for Pixel {
+//     fn from(value: RgbColor) -> Self {
+//         Self(value.get() & 0xFFFFFF00)
+//     }
+// }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RgbColor(u32);
 
 impl RgbColor {
@@ -166,10 +166,21 @@ impl RgbColor {
     pub const fn from(value: u32) -> Self {
         Self(value)
     }
-}
 
-impl From<Pixel> for RgbColor {
-    fn from(value: Pixel) -> Self {
-        Self(value.get() & 0xFFFFFF00)
+    pub fn le(&self) -> u32 {
+        u32::from_be(self.0)
+    }
+
+    pub fn bgr(&mut self) {
+        let r = ((self.0 & 0xff000000) >> 0x18) as u8;
+        let g = ((self.0 & 0xff0000) >> 0x10) as u8;
+        let b = ((self.0 & 0xff00) >> 0x8) as u8;
+        self.0 = u32::from_be_bytes([b, g, r, 0]);
     }
 }
+
+// impl From<Pixel> for RgbColor {
+//     fn from(value: Pixel) -> Self {
+//         Self(value.get() & 0xFFFFFF00)
+//     }
+// }
