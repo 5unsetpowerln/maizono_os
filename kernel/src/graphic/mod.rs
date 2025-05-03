@@ -1,4 +1,4 @@
-use core::ascii;
+use core::{ascii, ops::Deref};
 
 use common::graphic::RgbColor;
 use font::{GARBLED_FONT, U8_FONT};
@@ -93,4 +93,27 @@ pub trait PixelWriter {
         }
         Ok(())
     }
+}
+
+pub struct RefCell<T> {
+    inner: core::cell::RefCell<T>,
+}
+
+impl<T> RefCell<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            inner: core::cell::RefCell::new(value),
+        }
+    }
+}
+
+impl<T> Deref for RefCell<T> {
+    type Target = core::cell::RefCell<T>;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+trait A {
+    fn get_mutable_reference(&self) -> &mut Self;
 }

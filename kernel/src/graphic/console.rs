@@ -2,14 +2,16 @@ use core::{
     ascii,
     fmt::{self},
     mem::MaybeUninit,
+    ops::Deref,
     str,
 };
 
+use alloc::sync::Arc;
 use common::graphic::RgbColor;
-use spin::{Mutex, MutexGuard};
+use spin::Mutex;
 use thiserror_no_std::Error;
 
-use crate::error::Result;
+use crate::{allocator::Locked, error::Result};
 
 use super::{
     PixelWriter,
@@ -18,9 +20,6 @@ use super::{
 
 const ROWS: usize = 25;
 const COLUMNS: usize = 150;
-
-// pub static mut CONSOLE: MaybeUninit<Mutex<Console>> = MaybeUninit::uninit();
-static CONSOLE: Mutex<Console> = Mutex::new(Console::new());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ConsoleError {
@@ -66,27 +65,26 @@ impl<const CAP: usize> Line<CAP> {
     }
 }
 
-// pub struct Console<W: PixelWriter> {
+static CONSOLE: Locked<Console> = Locked::new(Console::new());
+
+type ThreadSafeSharedPixelWriter = Arc<Mutex<(dyn PixelWriter + Send)>>;
+
 pub struct Console {
     buffer: [Line<COLUMNS>; ROWS],
     bg_color: RgbColor,
     fg_color: RgbColor,
     cursor_row: usize,
     cursor_column: usize,
-    // writer: Arc<Mutex<Box<dyn PixelWriter>>>,
-    writer: MaybeUninit<&'static Mutex<dyn PixelWriter + Send>>,
+    writer: MaybeUninit<ThreadSafeSharedPixelWriter>,
 }
 
-// impl<W: PixelWriter> fmt::Write for Console<W> {
 impl fmt::Write for Console {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.print(s);
-        // self.print(s);
         Ok(())
     }
 }
 
-// impl<W: PixelWriter> Console<W> {
 impl Console {
     const fn new() -> Self {
         Self {
@@ -101,7 +99,7 @@ impl Console {
 
     fn init(
         &mut self,
-        writer: &'static Mutex<dyn PixelWriter + Send>,
+        writer: ThreadSafeSharedPixelWriter,
         bg_color: RgbColor,
         fg_color: RgbColor,
     ) -> Result<()> {
@@ -125,16 +123,19 @@ impl Console {
         Ok(())
     }
 
-    unsafe fn writer_locked(&self) -> MutexGuard<'static, dyn PixelWriter + Send> {
-        unsafe { (&*self.writer.as_ptr()).lock() }
+    pub fn set_writer(&mut self, writer: ThreadSafeSharedPixelWriter) {
+        self.writer = MaybeUninit::new(writer);
     }
 
     fn new_line(&mut self) {
+        let writer = unsafe { &*self.writer.as_ptr() };
+
         self.cursor_column = 0;
         if self.cursor_row < ROWS - 1 {
             self.cursor_row += 1;
         } else {
-            unsafe { self.writer_locked() }
+            writer
+                .lock()
                 .fill_rect(
                     0,
                     0,
@@ -146,11 +147,11 @@ impl Console {
 
             for row in 0..ROWS - 1 {
                 self.buffer[row] = self.buffer[row + 1];
-                let mut writer = unsafe { self.writer_locked() };
+                let mut writer_locked = writer.lock();
 
                 let line = self.buffer[row];
                 for (i, c) in line.chars[0..line.length].iter().enumerate() {
-                    writer
+                    writer_locked
                         .write_char(
                             font::CHARACTER_WIDTH * i,
                             font::CHARACTER_HEIGHT * row,
@@ -170,7 +171,10 @@ impl Console {
             if *c == ascii::Char::LineFeed {
                 self.new_line()
             } else if self.cursor_column < COLUMNS - 1 {
-                unsafe { self.writer_locked() }
+                let writer = unsafe { &*self.writer.as_ptr() };
+
+                writer
+                    .lock()
                     .write_char(
                         font::CHARACTER_WIDTH * self.cursor_column,
                         font::CHARACTER_HEIGHT * self.cursor_row,
@@ -186,7 +190,7 @@ impl Console {
 }
 
 pub fn init(
-    writer: &'static Mutex<dyn PixelWriter + Send>,
+    writer: ThreadSafeSharedPixelWriter,
     bg_color: RgbColor,
     fg_color: RgbColor,
 ) -> Result<()> {
@@ -195,7 +199,7 @@ pub fn init(
     Ok(())
 }
 
-pub fn get_console_reference() -> &'static Mutex<Console> {
+pub fn get_console_reference() -> &'static Locked<Console> {
     &CONSOLE
 }
 

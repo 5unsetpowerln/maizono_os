@@ -32,12 +32,18 @@ mod window;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use common::{boot::BootInfo, graphic::RgbColor};
+use alloc::sync::Arc;
+use common::{boot::BootInfo, graphic::RgbColor, matrix::Vec2};
 use device::ps2;
 use graphic::{
-    console,
-    frame_buffer::{self},
+    RefCell,
+    console::{self},
+    frame_buffer::{self, FRAME_BUFFER_HEIGHT},
 };
+use layer::Layer;
+use mouse::MOUSE_TRANSPARENT_COLOR;
+use spin::{Lazy, Mutex, Once};
+use window::Window;
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -78,19 +84,52 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
     switch_to_kernel_stack(main, boot_info);
 }
 
-fn main(boot_info: &BootInfo) -> ! {
+fn init_graphic(boot_info: &BootInfo) {
     frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800))
         .expect("Failed to initialize the frame buffer.");
 
     console::init(
-        frame_buffer::get_frame_buffer_reference(),
+        frame_buffer::FRAME_BUFFER.wait().clone(),
         RgbColor::from(0x3c383600),
         RgbColor::from(0xebdbb200),
     )
     .expect("Failed to initialize the console.");
 
-    gdt::init();
+    let create_window = |width: usize, height: usize, transparent_color: Option<RgbColor>| {
+        let mut window = Window::new();
+        window.init(width, height, transparent_color);
+        Arc::new(Mutex::new(window))
+    };
+
+    let bg_window = create_window(
+        *frame_buffer::FRAME_BUFFER_WIDTH.wait(),
+        *frame_buffer::FRAME_BUFFER_HEIGHT.wait(),
+        None,
+    );
+    let bg_layer = Layer::new(bg_window);
+
+    let mouse_window = create_window(
+        mouse::MOUSE_CURSOR_WIDTH,
+        mouse::MOUSE_CURSOR_HEIGHT,
+        Some(mouse::MOUSE_TRANSPARENT_COLOR),
+    );
+    mouse::draw_mouse_cursor(mouse_window.clone(), Vec2::new(0, 0));
+    let mouse_layer = Layer::new(mouse_window);
+
+    let mut layer_manager = layer::LAYER_MANAGER.lock();
+    layer_manager.init(frame_buffer::FRAME_BUFFER.wait().clone());
+    layer_manager.add_layer(bg_layer);
+    layer_manager.add_layer(mouse_layer)
+}
+
+fn main(boot_info: &BootInfo) -> ! {
     paging::init();
+    gdt::init();
+    frame_manager::init(&boot_info.memory_map);
+    allocator::init();
+
+    init_graphic(boot_info);
+
     pci::devices()
         .unwrap()
         .init()
@@ -110,16 +149,9 @@ fn main(boot_info: &BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
 
     timer::init_local_apic_timer();
-    mouse::init(100, 100, RgbColor::from(0x28282800));
-    frame_manager::init(&boot_info.memory_map);
-    allocator::init();
-
-    // let bg_window = Window::new(frame_buffer::width(), frame_buffer::height(), None);
 
     #[cfg(test)]
     test_main();
-
-    kprintln!("{} * {}", frame_buffer::height(), frame_buffer::width());
     kprintln!("It didn't crash:)");
     loop {
         if message::count() > 0 {

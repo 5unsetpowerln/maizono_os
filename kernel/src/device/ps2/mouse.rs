@@ -101,7 +101,8 @@ impl From<MouseEvent> for mouse::MouseEvent {
         }
 
         mouse::MouseEvent::Move {
-            displacement: Vec2::new(dx, dy, isize::MIN, isize::MAX, isize::MIN, isize::MAX),
+            // displacement: Vec2::new(dx, dy, isize::MIN, isize::MAX, isize::MIN, isize::MAX),
+            displacement: Vec2::new(dx, dy),
         }
     }
 }

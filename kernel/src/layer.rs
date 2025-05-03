@@ -1,16 +1,27 @@
-use alloc::{format, vec::Vec};
+use core::mem::MaybeUninit;
+
+use alloc::{format, sync::Arc, vec::Vec};
 use common::matrix::Vec2;
-use ouroboros::self_referencing;
+use slotmap::SlotMap;
+use spin::{Lazy, Mutex};
 
-use crate::{allocator::Locked, window::Window};
+use crate::{allocator::Locked, graphic::PixelWriter, window::Window};
 
-struct Layer {
+pub struct Layer {
     id: usize,
     origin_position: Vec2<usize>,
-    window: Window,
+    window: Arc<Mutex<Window>>,
 }
 
 impl Layer {
+    pub fn new(window: Arc<Mutex<Window>>) -> Self {
+        Self {
+            id: 0,
+            origin_position: Vec2::new(0, 0),
+            window,
+        }
+    }
+
     fn move_absolute(&mut self, origin_position: Vec2<usize>) {
         self.origin_position = origin_position;
     }
@@ -19,58 +30,80 @@ impl Layer {
         self.origin_position += origin_position_offset;
     }
 
-    fn draw_to_frame_buffer(&mut self) {
-        self.window.draw_to_frame_buffer(self.origin_position);
+    fn draw_to<'a>(&mut self, writer: &'a mut dyn PixelWriter) {
+        self.window.lock().draw_to(writer, self.origin_position)
     }
 }
 
-struct LayerManager {
-    layers: Vec<Layer>,
-    layer_stack: Vec<*mut Layer>,
+// type StaticSharedPixelWriter = &'static Mutex<(dyn PixelWriter + Send)>;
+type ThreadSafeSharedPixelWriter = Arc<Mutex<(dyn PixelWriter + Send)>>;
+
+pub struct LayerManager {
+    layers: SlotMap<slotmap::DefaultKey, Layer>,
+    layer_stack: Vec<slotmap::DefaultKey>,
     latest_id: usize,
+    writer: MaybeUninit<ThreadSafeSharedPixelWriter>,
 }
 
 impl LayerManager {
-    // fn new_layer(&mut self) -> &'a mut Layer {
-    //     self.latest_id += 1;
-    //     self.layers.push(Layer {
-    //         id: self.latest_id,
-    //         origin_position,
-    //     });
-    //     todo!()
-    // }
-
-    fn find_layer_mut(&mut self, id: usize) -> Option<&mut Layer> {
-        let layer = self.layers.iter_mut().find(|layer| layer.id == id);
-        return layer;
+    fn new() -> Self {
+        Self {
+            layers: SlotMap::new(),
+            layer_stack: Vec::new(),
+            latest_id: 0,
+            writer: MaybeUninit::uninit(),
+        }
     }
 
-    fn find_layer(&mut self, id: usize) -> Option<&Layer> {
-        let layer = self.layers.iter().find(|layer| layer.id == id);
-        return layer;
+    pub fn init(&mut self, writer: ThreadSafeSharedPixelWriter) {
+        self.set_writer(writer);
+    }
+
+    pub fn set_writer(&mut self, writer: ThreadSafeSharedPixelWriter) {
+        self.writer = MaybeUninit::new(writer);
+    }
+
+    pub fn add_layer(&mut self, layer: Layer) {
+        let mut layer = layer;
+
+        self.latest_id += 1;
+        layer.id = self.latest_id;
+
+        self.layers.insert(layer);
+    }
+
+    fn find_layer(&mut self, id: usize) -> Option<(slotmap::DefaultKey, &'_ Layer)> {
+        self.layers.iter().find(|(_, layer)| layer.id == id)
+    }
+
+    fn find_layer_mut(&mut self, id: usize) -> Option<(slotmap::DefaultKey, &'_ mut Layer)> {
+        self.layers.iter_mut().find(|(_, layer)| layer.id == id)
     }
 
     fn move_absolute(&mut self, id: usize, position: Vec2<usize>) {
         self.find_layer_mut(id)
             .expect(&format!("No such a layer with id {}", id))
+            .1
             .move_absolute(position);
     }
 
     fn move_relative(&mut self, id: usize, position: Vec2<usize>) {
         self.find_layer_mut(id)
             .expect(&format!("No such a layer with id {}", id))
+            .1
             .move_relative(position);
     }
 
-    unsafe fn draw(&mut self) {
+    fn draw(&mut self) {
+        let mut writer = unsafe { &*self.writer.as_ptr() }.lock();
+
         for layer in self.layer_stack.iter() {
-            unsafe { &mut *(*layer) }.draw_to_frame_buffer();
+            self.layers[*layer].draw_to(&mut *writer);
         }
     }
 
     unsafe fn hide(&mut self, id: usize) {
-        self.layer_stack
-            .retain(|layer| unsafe { &*(*layer) }.id == id);
+        self.layer_stack.retain(|key| self.layers[*key].id == id);
     }
 
     unsafe fn up_or_down(&mut self, id: usize, new_height: usize) {
@@ -80,13 +113,14 @@ impl LayerManager {
             local_new_height = self.layer_stack.len();
         }
 
-        let optional_old_position = self
-            .layer_stack
-            .iter()
-            .position(|&layer| unsafe { &*layer }.id == id);
         let mut new_position = local_new_height;
 
-        if let Some(old_position) = optional_old_position {
+        let old_position_opt = self
+            .layer_stack
+            .iter()
+            .position(|key| self.layers[*key].id == id);
+
+        if let Some(old_position) = old_position_opt {
             if new_position == self.layer_stack.len() {
                 new_position -= 1;
             }
@@ -94,12 +128,15 @@ impl LayerManager {
             let layer = self.layer_stack.remove(old_position);
             self.layer_stack.insert(new_position, layer)
         } else {
-            let layer = self
-                .find_layer_mut(id)
-                .expect(&format!("No such a layer with id {}.", id));
-            let mut_ptr = layer as *mut Layer;
-            self.layer_stack.insert(new_position, mut_ptr);
+            let key = self
+                .find_layer(id)
+                .expect(&format!("No such a layer with id {}.", id))
+                .clone()
+                .0;
+            self.layer_stack.insert(new_position, key);
             return;
         }
     }
 }
+
+pub static LAYER_MANAGER: Lazy<Mutex<LayerManager>> = Lazy::new(|| Mutex::new(LayerManager::new()));

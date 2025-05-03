@@ -7,7 +7,7 @@ use linked_list_allocator::LinkedListAllocator;
 
 use crate::frame_manager;
 
-pub struct Locked<A> {
+pub struct Locked<A: ?Sized> {
     inner: spin::Mutex<A>,
 }
 

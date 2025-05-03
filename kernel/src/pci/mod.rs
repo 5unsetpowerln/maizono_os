@@ -3,7 +3,6 @@ pub mod error;
 use core::{arch::asm, marker::PhantomData};
 
 use arrayvec::ArrayVec;
-// use common::arrayvec::ArrayVec;
 use error::PciError;
 use spin::{Mutex, MutexGuard};
 

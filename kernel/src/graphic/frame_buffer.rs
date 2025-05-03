@@ -1,13 +1,14 @@
-use crate::error::Result;
+use crate::{allocator::Locked, error::Result};
+use alloc::sync::Arc;
 use common::graphic::{GraphicInfo, PixelFormat, RgbColor};
 use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
 use super::PixelWriter;
 
-static FRAME_BUFFER: Mutex<FrameBuffer> = Mutex::new(FrameBuffer::new());
-static FRAME_BUFFER_WIDTH: Once<usize> = Once::new();
-static FRAME_BUFFER_HEIGHT: Once<usize> = Once::new();
+pub static FRAME_BUFFER: Once<Arc<Mutex<FrameBuffer>>> = Once::new();
+pub static FRAME_BUFFER_WIDTH: Once<usize> = Once::new();
+pub static FRAME_BUFFER_HEIGHT: Once<usize> = Once::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum FrameBufferError {
@@ -49,6 +50,10 @@ impl FrameBuffer {
         }
     }
 
+    fn is_inside_buffer(&self, x: usize, y: usize) -> bool {
+        !(x >= self.width || y >= self.height)
+    }
+
     pub fn init(&mut self, graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
         *self = Self {
             width: graphic_info.width,
@@ -65,10 +70,6 @@ impl FrameBuffer {
         };
         self.fill(bg_color)?;
         Ok(())
-    }
-
-    fn is_inside_buffer(&self, x: usize, y: usize) -> bool {
-        !(x >= self.width || y >= self.height)
     }
 }
 
@@ -115,32 +116,13 @@ fn write_pixel_bgr(self_: &mut FrameBuffer, x: usize, y: usize, mut pixel: RgbCo
 }
 
 pub fn init(graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
-    let mut frame_buffer = FRAME_BUFFER.lock();
-
+    let mut frame_buffer = FrameBuffer::new();
     frame_buffer
         .init(graphic_info, bg_color)
         .expect("Failed to construct the FrameBuffer.");
 
     FRAME_BUFFER_WIDTH.call_once(|| frame_buffer.width());
     FRAME_BUFFER_HEIGHT.call_once(|| frame_buffer.height());
-
+    FRAME_BUFFER.call_once(|| Arc::new(Mutex::new(frame_buffer)));
     Ok(())
-}
-
-/// Returns a static reference to the mutex-wrapped FrameBuffer.
-///
-/// Use this function is you need to pass the `FrameBuffer` as a writer to a structure like `Console`.
-///
-/// If you only need information such as the width, height, or other
-/// constants, consider using the dedicated accessor functions provided in this module instead.
-pub fn get_frame_buffer_reference() -> &'static Mutex<FrameBuffer> {
-    return &FRAME_BUFFER;
-}
-
-pub fn width() -> usize {
-    *FRAME_BUFFER_WIDTH.wait()
-}
-
-pub fn height() -> usize {
-    *FRAME_BUFFER_HEIGHT.wait()
 }

@@ -27,7 +27,7 @@ pub fn handle_message() {
                     ps2::mouse().lock().receive_events(|event| match event {
                         mouse::MouseEvent::Move { displacement } => {
                             timer::start_local_apic_timer();
-                            mouse::move_relative(displacement);
+                            // mouse::move_relative(displacement);
                             let elapsed = timer::local_apic_timer_elapsed();
                             timer::stop_local_apic_timer();
                             kprintln!("elapsed: 0x{:x}", elapsed);
