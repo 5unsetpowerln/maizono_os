@@ -36,12 +36,10 @@ use alloc::sync::Arc;
 use common::{boot::BootInfo, graphic::RgbColor, matrix::Vec2};
 use device::ps2;
 use graphic::{
-    RefCell,
     console::{self},
-    frame_buffer::{self, FRAME_BUFFER_HEIGHT},
+    frame_buffer::{self},
 };
 use layer::Layer;
-use mouse::MOUSE_TRANSPARENT_COLOR;
 use spin::{Lazy, Mutex, Once};
 use window::Window;
 

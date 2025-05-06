@@ -35,7 +35,6 @@ impl Layer {
     }
 }
 
-// type StaticSharedPixelWriter = &'static Mutex<(dyn PixelWriter + Send)>;
 type ThreadSafeSharedPixelWriter = Arc<Mutex<(dyn PixelWriter + Send)>>;
 
 pub struct LayerManager {

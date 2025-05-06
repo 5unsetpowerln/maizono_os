@@ -40,9 +40,7 @@ impl Window {
         };
     }
 
-    // pub fn draw_to<'a>(&self, writer: Locked<PixelWriterRef<'a>>, position: Vec2<usize>) {
     pub fn draw_to<'a>(&self, writer: PixelWriterRef<'a>, position: Vec2<usize>) {
-        // let mut writer = writer.lock();
         if let Some(transparent_color) = self.transparent_color {
             for y in 0..self.height {
                 for x in 0..self.width {
