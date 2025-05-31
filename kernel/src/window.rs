@@ -1,13 +1,16 @@
-use alloc::vec::Vec;
-use common::{graphic::RgbColor, matrix::Vec2};
+use alloc::{format, vec::Vec};
+use anyhow::Context;
+use common::graphic::RgbColor;
+use glam::U64Vec2;
 
-use crate::{allocator::Locked, error::Result, graphic::PixelWriter};
+use crate::{error::Result, graphic::PixelWriter, serial_println};
 
 type PixelWriterRef<'a> = &'a mut dyn PixelWriter;
 
+#[derive(Debug)]
 pub struct Window {
-    width: usize,
-    height: usize,
+    width: u64,
+    height: u64,
     data: Vec<Vec<RgbColor>>,
     transparent_color: Option<RgbColor>,
 }
@@ -22,14 +25,14 @@ impl Window {
         }
     }
 
-    pub fn init(&mut self, width: usize, height: usize, transparent_color: Option<RgbColor>) {
+    pub fn init(&mut self, width: u64, height: u64, transparent_color: Option<RgbColor>) {
         let mut data = Vec::new();
 
         let mut data_for_each_y = Vec::new();
-        data_for_each_y.resize(width, RgbColor::new());
+        data_for_each_y.resize(width as usize, RgbColor::new());
 
         for _ in 0..height {
-            data.resize(height, data_for_each_y.clone());
+            data.resize(height as usize, data_for_each_y.clone());
         }
 
         *self = Self {
@@ -40,14 +43,20 @@ impl Window {
         };
     }
 
-    pub fn draw_to<'a>(&self, writer: PixelWriterRef<'a>, position: Vec2<usize>) {
+    pub fn draw_to<'a>(&self, writer: PixelWriterRef<'a>, position: U64Vec2) {
         if let Some(transparent_color) = self.transparent_color {
             for y in 0..self.height {
                 for x in 0..self.width {
-                    let c: RgbColor = self.data[y][x];
+                    let c: RgbColor = self.data[y as usize][x as usize];
                     if c != transparent_color {
                         writer
-                            .write_pixel(position.x + x, position.y + y, c)
+                            .write_pixel(
+                                U64Vec2 {
+                                    x: position.x + x,
+                                    y: position.y + y,
+                                },
+                                c,
+                            )
                             .expect("Failed to write a pixel to the frame buffer.");
                     }
                 }
@@ -56,7 +65,13 @@ impl Window {
             for y in 0..self.height {
                 for x in 0..self.width {
                     writer
-                        .write_pixel(position.x + x, position.y + y, self.data[y][x])
+                        .write_pixel(
+                            U64Vec2 {
+                                x: position.x + x,
+                                y: position.y + y,
+                            },
+                            self.data[y as usize][x as usize],
+                        )
                         .expect("Failed to write a pixel to the frame buffer.");
                 }
             }
@@ -69,16 +84,41 @@ impl Window {
 }
 
 impl PixelWriter for Window {
-    fn width(&self) -> usize {
+    fn width(&self) -> u64 {
         self.width
     }
 
-    fn height(&self) -> usize {
+    fn height(&self) -> u64 {
         self.height
     }
 
-    fn write_pixel(&mut self, x: usize, y: usize, color: RgbColor) -> Result<()> {
-        self.data[y][x] = color;
+    fn write_pixel(&mut self, position: U64Vec2, color: RgbColor) -> Result<()> {
+        // serial_println!(
+        //     "{:?} / {} * {}",
+        //     position,
+        //     self.data[0].len(),
+        //     self.data.len()
+        // );
+        // self.data[position.y as usize][position.x as usize] = color;
+        let ptr = self
+            .data
+            .get_mut(position.y as usize)
+            .with_context(|| {
+                format!(
+                    "Failed to get a mutable reference of data[{}] / data[{}][{}]",
+                    position.y, self.height, self.width
+                )
+            })
+            .unwrap()
+            .get_mut(position.x as usize)
+            .with_context(|| {
+                format!(
+                    "Failed to get a mutable reference of data[{}][{}] / data[{}][{}].",
+                    position.y, position.x, self.height, self.width
+                )
+            })
+            .unwrap();
+        *ptr = color;
         Ok(())
     }
 }

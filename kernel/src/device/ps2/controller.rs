@@ -1,11 +1,13 @@
 use x86_64::instructions::port::{Port, PortReadOnly, PortWriteOnly};
 
+use crate::kprintln;
+
 // references:
 // https://wiki.osdev.org/%228042%22_PS/2_Controller
 
 type Result<T> = core::result::Result<T, ControllerError>;
 
-pub(crate) const LOOP_TIMEOUT: usize = 1000;
+pub(crate) const LOOP_TIMEOUT: usize = 1000000;
 
 #[derive(Debug)]
 pub(crate) enum ControllerError {

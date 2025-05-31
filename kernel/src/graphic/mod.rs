@@ -1,21 +1,22 @@
-use core::{ascii, ops::Deref};
+use core::{ascii, fmt::Debug, ops::Deref};
 
 use common::graphic::RgbColor;
 use font::{GARBLED_FONT, U8_FONT};
+use glam::{U64Vec2, u64vec2};
 
-use crate::error::Result;
+use crate::{error::Result, serial_println};
 
 pub mod char;
 pub mod console;
 pub mod font;
 pub mod frame_buffer;
 
-pub trait PixelWriter {
-    fn width(&self) -> usize;
-    fn height(&self) -> usize;
-    fn write_pixel(&mut self, x: usize, y: usize, color: RgbColor) -> Result<()>;
+pub trait PixelWriter: Debug {
+    fn width(&self) -> u64;
+    fn height(&self) -> u64;
+    fn write_pixel(&mut self, position: U64Vec2, color: RgbColor) -> Result<()>;
 
-    fn write_char(&mut self, x: usize, y: usize, ascii: ascii::Char, fg: RgbColor) -> Result<()> {
+    fn write_char(&mut self, position: U64Vec2, ascii: ascii::Char, fg: RgbColor) -> Result<()> {
         let glyph_index = ascii as usize;
         let glyph = {
             if glyph_index >= U8_FONT.len() {
@@ -28,7 +29,10 @@ pub trait PixelWriter {
         for (dy, row) in glyph.iter().enumerate() {
             for dx in 0..font::CHARACTER_WIDTH {
                 if (row >> 7 - dx) & 1 == 1 {
-                    self.write_pixel(x + dx, y + dy, fg)?;
+                    self.write_pixel(
+                        U64Vec2::from((position.x + dx as u64, position.y + dy as u64)),
+                        fg,
+                    )?;
                 }
             }
         }
@@ -37,15 +41,14 @@ pub trait PixelWriter {
 
     fn fill_rect(
         &mut self,
-        x: usize,
-        y: usize,
-        width: usize,
-        height: usize,
+        position: U64Vec2,
+        width: u64,
+        height: u64,
         color: RgbColor,
     ) -> Result<()> {
-        for x_inner in x..x + width {
-            for y_inner in y..y + height {
-                self.write_pixel(x_inner, y_inner, color)?;
+        for x in position.x..position.x + width {
+            for y in position.y..position.y + height {
+                self.write_pixel(u64vec2(x, y), color)?;
             }
         }
         Ok(())
@@ -54,7 +57,7 @@ pub trait PixelWriter {
     fn fill(&mut self, color: RgbColor) -> Result<()> {
         for x in 0..self.width() {
             for y in 0..self.height() {
-                match self.write_pixel(x, y, color) {
+                match self.write_pixel(U64Vec2 { x, y }, color) {
                     Ok(_) => continue,
                     Err(err) => return Err(err),
                 }
@@ -65,31 +68,49 @@ pub trait PixelWriter {
 
     fn draw_rect(
         &mut self,
-        x: usize,
-        y: usize,
-        width: usize,
-        height: usize,
+        position: U64Vec2,
+        width: u64,
+        height: u64,
         color: RgbColor,
     ) -> Result<()> {
-        for x_inner in x..x + width {
-            self.write_pixel(x_inner, y, color)?;
-            self.write_pixel(x_inner, y + height - 1, color)?;
+        for x in position.x..position.x + width {
+            self.write_pixel(U64Vec2 { x, y: position.y }, color)?;
+            self.write_pixel(
+                U64Vec2 {
+                    x,
+                    y: position.y + height - 1,
+                },
+                color,
+            )?;
         }
-        for y_inner in y..y + height {
-            self.write_pixel(x, y_inner, color)?;
-            self.write_pixel(x + width - 1, y_inner, color)?;
+        for y in position.y..position.y + height {
+            self.write_pixel(U64Vec2 { x: position.x, y }, color)?;
+            self.write_pixel(
+                U64Vec2 {
+                    x: position.x + width - 1,
+                    y,
+                },
+                color,
+            )?;
         }
         Ok(())
     }
 
-    fn write_string(&mut self, x: usize, y: usize, data: &str, fg: RgbColor) -> Result<()> {
+    fn write_string(&mut self, position: U64Vec2, data: &str, fg: RgbColor) -> Result<()> {
         for (i, c) in data
             .as_ascii()
             .expect("non ascii string is given.")
             .iter()
             .enumerate()
         {
-            self.write_char(x + i * font::CHARACTER_WIDTH * 2, y, c.clone(), fg)?;
+            self.write_char(
+                U64Vec2 {
+                    x: position.x + (i * font::CHARACTER_WIDTH) as u64 * 2,
+                    y: position.y,
+                },
+                c.clone(),
+                fg,
+            )?;
         }
         Ok(())
     }

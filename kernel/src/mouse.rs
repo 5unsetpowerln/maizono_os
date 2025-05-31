@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
-use common::{graphic::RgbColor, matrix::Vec2};
+use common::graphic::RgbColor;
+use glam::{I64Vec2, U64Vec2, u64vec2};
 use spin::{Lazy, Mutex};
 
 use crate::{device::ps2, error::Error, graphic::PixelWriter, kprintln};
@@ -66,8 +67,9 @@ const MOUSE_CURSOR_DATA: [[MousePixel; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT]
     mouse_cursor
 };
 
+#[derive(Debug)]
 pub enum MouseEvent {
-    Move { displacement: Vec2<isize> },
+    Move { displacement: I64Vec2 },
     LeftClick,
     MiddleClick,
     RightClick,
@@ -75,16 +77,16 @@ pub enum MouseEvent {
 
 type ThreadSafeSharedPixelWriter = Arc<Mutex<dyn PixelWriter>>;
 
-pub fn draw_mouse_cursor<'a>(writer: ThreadSafeSharedPixelWriter, position: Vec2<isize>) {
+pub fn draw_mouse_cursor<'a>(writer: ThreadSafeSharedPixelWriter, position: U64Vec2) {
     let mut writer = writer.lock();
-    for dy in 0..MOUSE_CURSOR_HEIGHT {
-        for dx in 0..MOUSE_CURSOR_WIDTH {
-            match MOUSE_CURSOR_DATA[dy][dx] {
+    for dy in 0..MOUSE_CURSOR_HEIGHT as u64 {
+        for dx in 0..MOUSE_CURSOR_WIDTH as u64 {
+            match MOUSE_CURSOR_DATA[dy as usize][dx as usize] {
                 MousePixel::Border(color) => writer
-                    .write_pixel(position.x as usize + dx, position.y as usize + dy, color)
+                    .write_pixel(u64vec2(position.x + dx, position.y + dy), color)
                     .expect("Failed to write a pixel to the writer."),
                 MousePixel::Inner(color) => writer
-                    .write_pixel(position.x as usize + dx, position.y as usize + dy, color)
+                    .write_pixel(u64vec2(position.x + dx, position.y + dy), color)
                     .expect("Failed to write a pixel to the writer"),
                 MousePixel::Null => {}
             }

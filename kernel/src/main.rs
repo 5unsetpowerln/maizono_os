@@ -27,14 +27,16 @@ mod qemu;
 mod serial;
 mod timer;
 mod types;
+mod util;
 mod window;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
 
 use alloc::sync::Arc;
-use common::{boot::BootInfo, graphic::RgbColor, matrix::Vec2};
+use common::{boot::BootInfo, graphic::RgbColor};
 use device::ps2;
+use glam::u64vec2;
 use graphic::{
     console::{self},
     frame_buffer::{self},
@@ -82,42 +84,65 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
     switch_to_kernel_stack(main, boot_info);
 }
 
-fn init_graphic(boot_info: &BootInfo) {
+struct LayerIDs {
+    mouse_layer_id: usize,
+    console_layer_id: usize,
+    bg_layer_id: usize,
+}
+
+fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800))
         .expect("Failed to initialize the frame buffer.");
 
-    console::init(
-        frame_buffer::FRAME_BUFFER.wait().clone(),
-        RgbColor::from(0x3c383600),
-        RgbColor::from(0xebdbb200),
-    )
-    .expect("Failed to initialize the console.");
-
-    let create_window = |width: usize, height: usize, transparent_color: Option<RgbColor>| {
+    let create_window = |width: u64, height: u64, transparent_color: Option<RgbColor>| {
         let mut window = Window::new();
         window.init(width, height, transparent_color);
         Arc::new(Mutex::new(window))
     };
 
+    // background
     let bg_window = create_window(
-        *frame_buffer::FRAME_BUFFER_WIDTH.wait(),
-        *frame_buffer::FRAME_BUFFER_HEIGHT.wait(),
+        *frame_buffer::FRAME_BUFFER_WIDTH.wait() as u64,
+        *frame_buffer::FRAME_BUFFER_HEIGHT.wait() as u64,
         None,
     );
     let bg_layer = Layer::new(bg_window);
 
+    // console
+    let console_window = create_window(console::WIDTH as u64, console::HEIGHT as u64, None);
+    let console_layer = Layer::new(console_window.clone());
+    console::init(
+        console_window,
+        RgbColor::from(0x3c383600),
+        RgbColor::from(0xebdbb200),
+    )
+    .expect("Failed to initialize the console.");
+
+    // mouse
     let mouse_window = create_window(
-        mouse::MOUSE_CURSOR_WIDTH,
-        mouse::MOUSE_CURSOR_HEIGHT,
+        mouse::MOUSE_CURSOR_WIDTH as u64,
+        mouse::MOUSE_CURSOR_HEIGHT as u64,
         Some(mouse::MOUSE_TRANSPARENT_COLOR),
     );
-    mouse::draw_mouse_cursor(mouse_window.clone(), Vec2::new(0, 0));
+    mouse::draw_mouse_cursor(mouse_window.clone(), u64vec2(0, 0));
     let mouse_layer = Layer::new(mouse_window);
 
     let mut layer_manager = layer::LAYER_MANAGER.lock();
     layer_manager.init(frame_buffer::FRAME_BUFFER.wait().clone());
-    layer_manager.add_layer(bg_layer);
-    layer_manager.add_layer(mouse_layer)
+    let bg_layer_id = layer_manager.add_layer(bg_layer);
+    let console_layer_id = layer_manager.add_layer(console_layer);
+    let mouse_layer_id = layer_manager.add_layer(mouse_layer);
+
+    layer_manager.up_or_down(bg_layer_id, 0);
+    layer_manager.up_or_down(console_layer_id, 1);
+    layer_manager.up_or_down(mouse_layer_id, 2);
+    layer_manager.draw();
+
+    LayerIDs {
+        mouse_layer_id,
+        console_layer_id,
+        bg_layer_id,
+    }
 }
 
 fn main(boot_info: &BootInfo) -> ! {
@@ -126,7 +151,7 @@ fn main(boot_info: &BootInfo) -> ! {
     frame_manager::init(&boot_info.memory_map);
     allocator::init();
 
-    init_graphic(boot_info);
+    let layer_ids = init_graphic(boot_info);
 
     pci::devices()
         .unwrap()
@@ -150,10 +175,44 @@ fn main(boot_info: &BootInfo) -> ! {
 
     #[cfg(test)]
     test_main();
+
     kprintln!("It didn't crash:)");
     loop {
         if message::count() > 0 {
-            message::handle_message();
+            x86_64::instructions::interrupts::disable();
+            if let Some(message) = message::QUEUE.lock().dequeue() {
+                match message {
+                    message::Message::PS2KeyboardInterrupt => {
+                        // must receive data to prevent the block
+                        let data = unsafe { ps2::keyboard().lock().read_data() };
+                        kprintln!("{:?}", data);
+                    }
+                    message::Message::PS2MouseInterrupt => {
+                        let event = unsafe { ps2::mouse().lock().receive_events() }
+                            .expect("Failed to receive events");
+
+                        match event {
+                            mouse::MouseEvent::Move { displacement } => {
+                                // timer::start_local_apic_timer();
+
+                                layer::LAYER_MANAGER
+                                    .lock()
+                                    .move_relative(layer_ids.mouse_layer_id, displacement);
+                                layer::LAYER_MANAGER.lock().draw();
+
+                                // let elapsed = timer::local_apic_timer_elapsed();
+                                // timer::stop_local_apic_timer();
+                                // kprintln!("elapsed: {}", elapsed);
+                            }
+                            _ => {}
+                        }
+                    }
+                    message::Message::LocalAPICTimerInterrupt => {
+                        kprintln!("local apic timer interrupt occured!");
+                    }
+                }
+            }
+            x86_64::instructions::interrupts::enable();
         } else {
             unsafe { asm!("hlt") }
         }
@@ -207,8 +266,8 @@ fn panic(info: &PanicInfo) -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    kprintln!("[panic]");
-    kprintln!("{}", info);
+    serial_println!("[panic]");
+    serial_println!("{}", info);
     loop {
         unsafe { asm!("hlt") }
     }

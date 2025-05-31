@@ -1,6 +1,7 @@
-use crate::{allocator::Locked, error::Result};
+use crate::error::Result;
 use alloc::sync::Arc;
 use common::graphic::{GraphicInfo, PixelFormat, RgbColor};
+use glam::U64Vec2;
 use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
@@ -26,14 +27,14 @@ pub enum FrameBufferError {
 
 #[derive(Clone, Debug)]
 pub struct FrameBuffer {
-    width: usize,
-    height: usize,
-    bytes_per_pixel: usize,
+    width: u64,
+    height: u64,
+    bytes_per_pixel: u64,
     stride: usize,
     pixel_format: PixelFormat,
     framebuf_addr: u64,
     framebuf_size: usize,
-    write_pixel: fn(&mut FrameBuffer, usize, usize, RgbColor) -> Result<()>,
+    write_pixel: fn(&mut FrameBuffer, U64Vec2, RgbColor) -> Result<()>,
 }
 
 impl FrameBuffer {
@@ -50,8 +51,8 @@ impl FrameBuffer {
         }
     }
 
-    fn is_inside_buffer(&self, x: usize, y: usize) -> bool {
-        !(x >= self.width || y >= self.height)
+    fn is_inside_buffer(&self, position: U64Vec2) -> bool {
+        !(position.x >= self.width || position.y >= self.height)
     }
 
     pub fn init(&mut self, graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
@@ -74,24 +75,24 @@ impl FrameBuffer {
 }
 
 impl PixelWriter for FrameBuffer {
-    fn write_pixel(&mut self, x: usize, y: usize, pixel: RgbColor) -> Result<()> {
-        (self.write_pixel)(self, x, y, pixel)
+    fn write_pixel(&mut self, position: U64Vec2, pixel: RgbColor) -> Result<()> {
+        (self.write_pixel)(self, position, pixel)
     }
 
-    fn width(&self) -> usize {
+    fn width(&self) -> u64 {
         self.width
     }
 
-    fn height(&self) -> usize {
+    fn height(&self) -> u64 {
         self.height
     }
 }
 
-fn write_pixel_rgb(self_: &mut FrameBuffer, x: usize, y: usize, pixel: RgbColor) -> Result<()> {
-    if !self_.is_inside_buffer(x, y) {
+fn write_pixel_rgb(self_: &mut FrameBuffer, position: U64Vec2, pixel: RgbColor) -> Result<()> {
+    if !self_.is_inside_buffer(position) {
         return Err(FrameBufferError::OutsideBufferError.into());
     }
-    let offset = (y * self_.width + x) * self_.bytes_per_pixel;
+    let offset = (position.y * self_.width + position.x) * self_.bytes_per_pixel;
     let pixel_ref = (self_.framebuf_addr + offset as u64) as *mut u32;
 
     unsafe {
@@ -100,12 +101,12 @@ fn write_pixel_rgb(self_: &mut FrameBuffer, x: usize, y: usize, pixel: RgbColor)
     Ok(())
 }
 
-fn write_pixel_bgr(self_: &mut FrameBuffer, x: usize, y: usize, mut pixel: RgbColor) -> Result<()> {
-    if !self_.is_inside_buffer(x, y) {
+fn write_pixel_bgr(self_: &mut FrameBuffer, position: U64Vec2, mut pixel: RgbColor) -> Result<()> {
+    if !self_.is_inside_buffer(position) {
         return Err(FrameBufferError::OutsideBufferError.into());
     }
 
-    let offset = (y * self_.width + x) * self_.bytes_per_pixel;
+    let offset = (position.y * self_.width + position.x) * self_.bytes_per_pixel;
     let pixel_ref = (self_.framebuf_addr + offset as u64) as *mut u32;
     pixel.bgr();
 
@@ -121,8 +122,8 @@ pub fn init(graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
         .init(graphic_info, bg_color)
         .expect("Failed to construct the FrameBuffer.");
 
-    FRAME_BUFFER_WIDTH.call_once(|| frame_buffer.width());
-    FRAME_BUFFER_HEIGHT.call_once(|| frame_buffer.height());
+    FRAME_BUFFER_WIDTH.call_once(|| frame_buffer.width() as usize);
+    FRAME_BUFFER_HEIGHT.call_once(|| frame_buffer.height() as usize);
     FRAME_BUFFER.call_once(|| Arc::new(Mutex::new(frame_buffer)));
     Ok(())
 }

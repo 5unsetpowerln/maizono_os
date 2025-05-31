@@ -2,16 +2,16 @@ use core::{
     ascii,
     fmt::{self},
     mem::MaybeUninit,
-    ops::Deref,
     str,
 };
 
 use alloc::sync::Arc;
 use common::graphic::RgbColor;
+use glam::{U64Vec2, u64vec2};
 use spin::Mutex;
 use thiserror_no_std::Error;
 
-use crate::{allocator::Locked, error::Result};
+use crate::{allocator::Locked, error::Result, serial_println};
 
 use super::{
     PixelWriter,
@@ -20,6 +20,8 @@ use super::{
 
 const ROWS: usize = 25;
 const COLUMNS: usize = 150;
+pub const WIDTH: usize = COLUMNS * CHARACTER_WIDTH;
+pub const HEIGHT: usize = ROWS * CHARACTER_HEIGHT;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ConsoleError {
@@ -73,8 +75,8 @@ pub struct Console {
     buffer: [Line<COLUMNS>; ROWS],
     bg_color: RgbColor,
     fg_color: RgbColor,
-    cursor_row: usize,
-    cursor_column: usize,
+    cursor_row: u64,
+    cursor_column: u64,
     writer: MaybeUninit<ThreadSafeSharedPixelWriter>,
 }
 
@@ -103,13 +105,9 @@ impl Console {
         bg_color: RgbColor,
         fg_color: RgbColor,
     ) -> Result<()> {
-        writer.lock().fill_rect(
-            0,
-            0,
-            COLUMNS * CHARACTER_WIDTH,
-            ROWS * CHARACTER_HEIGHT,
-            bg_color,
-        )?;
+        writer
+            .lock()
+            .fill_rect(u64vec2(0, 0), WIDTH as u64, HEIGHT as u64, bg_color)?;
 
         *self = Self {
             buffer: [Line::<COLUMNS>::null(); ROWS],
@@ -131,16 +129,15 @@ impl Console {
         let writer = unsafe { &*self.writer.as_ptr() };
 
         self.cursor_column = 0;
-        if self.cursor_row < ROWS - 1 {
+        if self.cursor_row < ROWS as u64 - 1 {
             self.cursor_row += 1;
         } else {
             writer
                 .lock()
                 .fill_rect(
-                    0,
-                    0,
-                    COLUMNS * CHARACTER_WIDTH,
-                    ROWS * CHARACTER_HEIGHT,
+                    u64vec2(0, 0),
+                    (COLUMNS * CHARACTER_WIDTH) as u64,
+                    (ROWS * CHARACTER_HEIGHT) as u64,
                     self.bg_color.into(),
                 )
                 .expect("Failed to fill up the console.");
@@ -153,8 +150,10 @@ impl Console {
                 for (i, c) in line.chars[0..line.length].iter().enumerate() {
                     writer_locked
                         .write_char(
-                            font::CHARACTER_WIDTH * i,
-                            font::CHARACTER_HEIGHT * row,
+                            u64vec2(
+                                (font::CHARACTER_WIDTH * i) as u64,
+                                (font::CHARACTER_HEIGHT * row) as u64,
+                            ),
                             *c,
                             self.fg_color,
                         )
@@ -170,19 +169,21 @@ impl Console {
         for c in s.as_ascii().expect("Non ascii character is given.") {
             if *c == ascii::Char::LineFeed {
                 self.new_line()
-            } else if self.cursor_column < COLUMNS - 1 {
+            } else if self.cursor_column < COLUMNS as u64 - 1 {
                 let writer = unsafe { &*self.writer.as_ptr() };
 
                 writer
                     .lock()
                     .write_char(
-                        font::CHARACTER_WIDTH * self.cursor_column,
-                        font::CHARACTER_HEIGHT * self.cursor_row,
+                        u64vec2(
+                            font::CHARACTER_WIDTH as u64 * self.cursor_column,
+                            font::CHARACTER_HEIGHT as u64 * self.cursor_row,
+                        ),
                         *c,
                         self.fg_color,
                     )
                     .unwrap();
-                self.buffer[self.cursor_row].push(*c).unwrap();
+                self.buffer[self.cursor_row as usize].push(*c).unwrap();
                 self.cursor_column += 1;
             }
         }

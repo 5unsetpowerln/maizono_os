@@ -34,10 +34,10 @@ impl PixelFormat {
 }
 
 pub struct GraphicInfo {
-    pub width: usize,
-    pub height: usize,
+    pub width: u64,
+    pub height: u64,
     pub stride: usize,
-    pub bytes_per_pixel: usize,
+    pub bytes_per_pixel: u64,
     pub pixel_format: PixelFormat,
     pub frame_buffer_addr: u64,
     pub size: usize,
@@ -49,10 +49,9 @@ impl GraphicInfo {
         let resolution = current_mode_info.resolution();
         let mut frame_buffer = gop.frame_buffer();
 
-        let width = resolution.0;
-        let height = resolution.1;
+        let width = resolution.0 as u64;
+        let height = resolution.1 as u64;
         let stride = current_mode_info.stride();
-        // let bytes_per_pixel = frame_buffer.size() / width * height; THIS CALCULATION IS INCORRECT!!!.
         let bytes_per_pixel = 4;
         let pixel_format =
             PixelFormat::from_gop_pixel_format_type(&current_mode_info.pixel_format())?;

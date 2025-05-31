@@ -1,6 +1,6 @@
 pub(crate) const EVENT_BUFFER_LENGTH: usize = 128;
 
-use common::matrix::Vec2;
+use glam::I64Vec2;
 use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::device::ps2;
@@ -78,15 +78,15 @@ impl MouseEvent {
 impl From<MouseEvent> for mouse::MouseEvent {
     fn from(event: MouseEvent) -> mouse::MouseEvent {
         let dx = if !event.x_sign {
-            (event.x_offset + if event.x_overflow { 1 } else { 0 } * 127) as isize
+            (event.x_offset + if event.x_overflow { 1 } else { 0 } * 127) as i64
         } else {
-            (event.x_offset + if event.x_overflow { 1 } else { 0 } * -127) as isize
+            (event.x_offset + if event.x_overflow { 1 } else { 0 } * -127) as i64
         };
 
         let mut dy = if !event.y_sign {
-            (event.y_offset + if event.y_overflow { 1 } else { 0 } * 127) as isize
+            (event.y_offset + if event.y_overflow { 1 } else { 0 } * 127) as i64
         } else {
-            (event.y_offset + if event.y_overflow { 1 } else { 0 } * -127) as isize
+            (event.y_offset + if event.y_overflow { 1 } else { 0 } * -127) as i64
         };
         dy = -dy;
 
@@ -101,8 +101,7 @@ impl From<MouseEvent> for mouse::MouseEvent {
         }
 
         mouse::MouseEvent::Move {
-            // displacement: Vec2::new(dx, dy, isize::MIN, isize::MAX, isize::MIN, isize::MAX),
-            displacement: Vec2::new(dx, dy),
+            displacement: I64Vec2::new(dx, dy),
         }
     }
 }
@@ -175,15 +174,25 @@ impl Mouse {
         }
     }
 
-    pub unsafe fn receive_events(&mut self, handler: fn(mouse::MouseEvent)) -> Result<()> {
+    // pub unsafe fn receive_events(&mut self) -> Result<mouse::MouseEvent> {
+    //     let mut buffer = [0; 3];
+    //     for i in 0..3 {
+    //         buffer[i] = unsafe { self.read_data() }?;
+    //         kprintln!("receive_events: received data[{}]", i);
+    //     }
+    //     let event = MouseEvent::new(buffer[0], buffer[1], buffer[2]);
+
+    //     Ok(event.into())
+    // }
+
+    pub unsafe fn receive_events(&mut self) -> Result<mouse::MouseEvent> {
         let mut buffer = [0; 3];
         for i in 0..3 {
             buffer[i] = unsafe { self.read_data() }?;
         }
         let event = MouseEvent::new(buffer[0], buffer[1], buffer[2]);
-        handler(event.into());
 
-        Ok(())
+        Ok(mouse::MouseEvent::from(event))
     }
 }
 
