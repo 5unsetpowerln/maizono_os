@@ -12,9 +12,8 @@ use acpi::{
     sdt::SdtHeader,
 };
 use common::address::PhysPtr;
+use log::{debug, error, info};
 use spin::{Mutex, Once};
-
-use crate::kprintln;
 
 trait Validate {
     fn is_valid(&self) -> bool;
@@ -25,26 +24,26 @@ impl Validate for Rsdp {
         if let Err(err) = self.validate() {
             match err {
                 AcpiError::RsdpIncorrectSignature => {
-                    kprintln!("invalid signature: {:?}", self.signature());
+                    error!("invalid signature: {:?}", self.signature());
                     return false;
                 }
                 AcpiError::RsdpInvalidOemId => {
-                    kprintln!("invalid oem id: {}", self.oem_id());
+                    error!("invalid oem id: {}", self.oem_id());
                     return false;
                 }
                 AcpiError::RsdpInvalidChecksum => {
-                    kprintln!("invalid checksum.");
+                    error!("invalid checksum.");
                     return false;
                 }
                 _ => {
-                    kprintln!("unreachable!");
+                    error!("unreachable!");
                     panic!();
                 }
             }
         }
 
         if self.revision() != 2 {
-            kprintln!("ACPI revision must be 2: {}", self.revision());
+            debug!("ACPI revision must be 2: {}", self.revision());
             return false;
         }
 
@@ -73,23 +72,23 @@ impl Xsdt {
         if let Err(err) = self.header.validate(acpi::sdt::Signature::XSDT) {
             match err {
                 AcpiError::SdtInvalidSignature(invalid_signature) => {
-                    kprintln!("invalid signature: {}", invalid_signature);
+                    error!("invalid signature: {}", invalid_signature);
                     false
                 }
                 AcpiError::SdtInvalidOemId(_) => {
-                    kprintln!("invalid oem id");
+                    error!("invalid oem id");
                     false
                 }
                 AcpiError::SdtInvalidTableId(_) => {
-                    kprintln!("invalid table id");
+                    error!("invalid table id");
                     false
                 }
                 AcpiError::SdtInvalidChecksum(_) => {
-                    kprintln!("invalid checksum:");
+                    error!("invalid checksum:");
                     false
                 }
                 _ => {
-                    kprintln!("unreachable!");
+                    error!("unreachable!");
                     panic!();
                 }
             }
@@ -167,13 +166,13 @@ static APIC_INFO: Once<ApicInfo> = Once::new();
 pub unsafe fn init(rsdp_addr: PhysPtr) {
     let rsdp = unsafe { rsdp_addr.ref_::<Rsdp>() };
     if !rsdp.is_valid() {
-        kprintln!("RSDP isn't valid.");
+        error!("RSDP isn't valid.");
         panic!();
     }
 
     let xsdt = unsafe { &*(rsdp.xsdt_address() as *const Xsdt) };
     if !xsdt.is_valid() {
-        kprintln!("XSDT is not valid.");
+        error!("XSDT is not valid.");
         panic!();
     }
 
@@ -194,21 +193,21 @@ pub unsafe fn init(rsdp_addr: PhysPtr) {
     }
 
     if fadt_ptr.is_null() {
-        kprintln!("FADT isn't found.");
+        error!("FADT isn't found.");
         panic!();
     }
 
     if madt_ptr.is_null() {
-        kprintln!("MADT isn't found.");
+        error!("MADT isn't found.");
         panic!();
     }
 
     let madt = unsafe { Pin::new_unchecked(&*madt_ptr) };
 
-    kprintln!("FADT is found: 0x{:X}", fadt_ptr as u64);
-    FADT.call_once(|| *fadt_ptr);
+    info!("FADT is found: 0x{:X}", fadt_ptr as u64);
+    FADT.call_once(|| unsafe { *fadt_ptr });
 
-    kprintln!("MADT is found: 0x{:X}", madt_ptr as u64);
+    info!("MADT is found: 0x{:X}", madt_ptr as u64);
     APIC_INFO.call_once(|| ApicInfo::from_madt(madt));
 }
 

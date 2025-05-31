@@ -1,11 +1,14 @@
-use core::{fmt::Debug, mem::MaybeUninit};
+use core::mem::MaybeUninit;
 
 use alloc::{format, sync::Arc, vec::Vec};
 use glam::{I64Vec2, U64Vec2};
 use slotmap::SlotMap;
 use spin::{Lazy, Mutex};
 
-use crate::{graphic::PixelWriter, kprintln, serial_println, window::Window};
+use crate::{
+    graphic::{PixelWriter, PixelWriterCopyable, frame_buffer::FrameBuffer},
+    window::Window,
+};
 
 pub struct Layer {
     id: usize,
@@ -32,18 +35,16 @@ impl Layer {
             .saturating_add_signed(origin_position_offset);
     }
 
-    fn draw_to<'a>(&mut self, writer: &'a mut dyn PixelWriter) {
+    fn draw_to<'a>(&mut self, writer: &Arc<Mutex<FrameBuffer>>) {
         self.window.lock().draw_to(writer, self.origin_position)
     }
 }
-
-type ThreadSafeSharedPixelWriter = Arc<Mutex<(dyn PixelWriter + Send)>>;
 
 pub struct LayerManager {
     layers: SlotMap<slotmap::DefaultKey, Layer>,
     layer_stack: Vec<slotmap::DefaultKey>,
     latest_id: usize,
-    writer: MaybeUninit<ThreadSafeSharedPixelWriter>,
+    writer: MaybeUninit<Arc<Mutex<FrameBuffer>>>,
 }
 
 impl LayerManager {
@@ -56,11 +57,11 @@ impl LayerManager {
         }
     }
 
-    pub fn init(&mut self, writer: ThreadSafeSharedPixelWriter) {
+    pub fn init(&mut self, writer: Arc<Mutex<FrameBuffer>>) {
         self.set_writer(writer);
     }
 
-    pub fn set_writer(&mut self, writer: ThreadSafeSharedPixelWriter) {
+    pub fn set_writer(&mut self, writer: Arc<Mutex<FrameBuffer>>) {
         self.writer = MaybeUninit::new(writer);
     }
 
@@ -98,10 +99,10 @@ impl LayerManager {
     }
 
     pub fn draw(&mut self) {
-        let mut writer = unsafe { &*self.writer.as_ptr() }.lock();
+        let mut writer = unsafe { &*self.writer.as_ptr() };
 
         for layer in self.layer_stack.iter() {
-            self.layers[*layer].draw_to(&mut *writer);
+            self.layers[*layer].draw_to(writer);
         }
     }
 

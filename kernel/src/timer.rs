@@ -1,10 +1,3 @@
-// use core::{cmp::Ordering, ptr::write_volatile};
-
-// use alloc::collections::{BinaryHeap, vec_deque::VecDeque};
-// use spin::{Lazy, Mutex};
-
-// use crate::{interrupts, kprintln, message::Message};
-
 const COUNT_MAX: u32 = u32::MAX;
 
 // static TIMER_MANAGER: Lazy<Mutex<TimerManager>> = Lazy::new(|| Mutex::new(TimerManager::new()));

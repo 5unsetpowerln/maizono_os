@@ -53,7 +53,10 @@ fn main_inner() -> Status {
                 panic!("panicked");
             }
         };
-    info!("frame_buffer_addr: 0x{:X}", graphic_info.frame_buffer_addr);
+    info!(
+        "frame_buffer_addr: 0x{:X}",
+        graphic_info.frame_buffer_addr.unwrap()
+    );
 
     info!("loading kernel");
     let kernel = match load_kernel() {

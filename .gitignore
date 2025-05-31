@@ -5,3 +5,5 @@ build/**
 **/Cargo.lock
 .idea/
 .idea/**
+.pwnenv
+.pwnenv/**

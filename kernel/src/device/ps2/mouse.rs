@@ -3,8 +3,7 @@ pub(crate) const EVENT_BUFFER_LENGTH: usize = 128;
 use glam::I64Vec2;
 use x86_64::structures::idt::InterruptStackFrame;
 
-use crate::device::ps2;
-use crate::{interrupts, kprintln, message, mouse};
+use crate::{interrupts, message, mouse};
 
 use super::{
     controller::{Controller, ControllerError},
@@ -173,17 +172,6 @@ impl Mouse {
             _ => Err(MouseError::InvalidResponse),
         }
     }
-
-    // pub unsafe fn receive_events(&mut self) -> Result<mouse::MouseEvent> {
-    //     let mut buffer = [0; 3];
-    //     for i in 0..3 {
-    //         buffer[i] = unsafe { self.read_data() }?;
-    //         kprintln!("receive_events: received data[{}]", i);
-    //     }
-    //     let event = MouseEvent::new(buffer[0], buffer[1], buffer[2]);
-
-    //     Ok(event.into())
-    // }
 
     pub unsafe fn receive_events(&mut self) -> Result<mouse::MouseEvent> {
         let mut buffer = [0; 3];

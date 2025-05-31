@@ -24,11 +24,11 @@ script = [
     "qemu-img create -f raw ${BUILD}/${DISK_IMAGE_NAME} 200M",
     "mkfs.fat -n 'MAIZONO' -s 2 -f 2 -R 32 -F 32 ${BUILD}/${DISK_IMAGE_NAME}",
     "mkdir -p ${BUILD}/${MOUNT_POINT_NAME}",
-    "sudo mount -o loop ${BUILD}/${DISK_IMAGE_NAME} ${BUILD}/${MOUNT_POINT_NAME}",
-    "sudo mkdir -p ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT",
-    "sudo cp ${BUILD}/${BOOTLOADER_NAME}.efi ${BUILD}/${MOUNT_POINT_NAME}/EFI/BOOT/BOOTX64.EFI",
-    "sudo cp ${BUILD}/${KERNEL_NAME}.elf ${BUILD}/${MOUNT_POINT_NAME}/${KERNEL_NAME}.elf",
-    "sudo umount ${BUILD}/${MOUNT_POINT_NAME}",
+
+    "mmd -i ${BUILD}/${DISK_IMAGE_NAME} ::/EFI",
+    "mmd -i ${BUILD}/${DISK_IMAGE_NAME} ::/EFI/BOOT",
+    "mcopy -i ${BUILD}/${DISK_IMAGE_NAME} ${BUILD}/${BOOTLOADER_NAME}.efi ::/EFI/BOOT/BOOTX64.EFI",
+    "mcopy -i ${BUILD}/${DISK_IMAGE_NAME} ${BUILD}/${KERNEL_NAME}.elf ::/${KERNEL_NAME}.elf",
 ]
 
 #
@@ -43,6 +43,18 @@ qemu-system-x86_64 -enable-kvm \
     -bios ${BUILD}/${OVMF_FILE_NAME} \
     -drive format=raw,file=${BUILD}/${DISK_IMAGE_NAME} \
     -serial stdio \
+'''
+
+[tasks.run_qemu_gdb]
+script = '''
+qemu-system-x86_64 -enable-kvm \
+    -smp 4 \
+    -m 1G \
+    -bios ${BUILD}/${OVMF_FILE_NAME} \
+    -drive format=raw,file=${BUILD}/${DISK_IMAGE_NAME} \
+    -serial stdio \
+    -d int,cpu_reset,guest_errors,mmu \
+    -s -S \
 '''
 
 [tasks.run_qemu_test]
@@ -97,6 +109,22 @@ script = [
     "cp ./${KERNEL_NAME}/target/${KERNEL_BUILD_TARGET_NAME}/debug/${KERNEL_NAME}.elf ${BUILD}/${KERNEL_NAME}.elf",
 ]
 
+[tasks.build_bootloader_debug_full]
+script = [
+    "cd ${BOOTLOADER_NAME}",
+    "RUSTFLAGS=\"-C debuginfo=2\" cargo +nightly build --target x86_64-unknown-uefi",
+    "cd ..",
+    "cp ./${BOOTLOADER_NAME}/target/x86_64-unknown-uefi/debug/${BOOTLOADER_NAME}.efi ${BUILD}/${BOOTLOADER_NAME}.efi",
+]
+
+[tasks.build_kernel_debug_full]
+script = [
+    "cd ${KERNEL_NAME}",
+    "RUSTFLAGS=\"-C debuginfo=2\" cargo +nightly build",
+    "cd ..",
+    "cp ./${KERNEL_NAME}/target/${KERNEL_BUILD_TARGET_NAME}/debug/${KERNEL_NAME}.elf ${BUILD}/${KERNEL_NAME}.elf",
+]
+
 [tasks.build_kernel_test]
 description = "Build the kernel for testing."
 script = [
@@ -114,6 +142,14 @@ dependencies = [
     "make_image",
 ]
 
+[tasks.build_debug_full]
+dependencies = [
+    "pre_build",
+    "build_bootloader_debug_full",
+    "build_kernel_debug_full",
+    "make_image",
+]
+
 [tasks.build_test]
 dependencies = [
     "pre_build",
@@ -124,6 +160,9 @@ dependencies = [
 
 [tasks.run_debug]
 dependencies = ["build_debug", "run_qemu"]
+
+[tasks.run_debug_gdb]
+dependencies = ["build_debug_full", "run_qemu_gdb"]
 
 [tasks.run_test]
 dependencies = ["build_test", "run_qemu_test"]

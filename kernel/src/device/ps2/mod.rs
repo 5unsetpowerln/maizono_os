@@ -1,10 +1,9 @@
 use controller::Controller;
 use keyboard::Keyboard;
+use log::{debug, info};
 use mouse::Mouse;
-use spin::{Mutex, MutexGuard, Once};
+use spin::{Mutex, Once};
 use static_assertions::const_assert;
-
-use crate::kprintln;
 
 pub mod controller;
 pub mod keyboard;
@@ -80,7 +79,7 @@ pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
 
         let has_second_port = !config_byte.get_second_port_clock();
         if has_second_port {
-            kprintln!("second port is supported.");
+            info!("second port is supported.");
             // if the controller has a dual channel.
             // disable the second PS/2 port again
             controller.disable_second_port();

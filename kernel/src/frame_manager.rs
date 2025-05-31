@@ -1,13 +1,10 @@
 use core::ops::{Deref, DerefMut};
 
-use spin::{Mutex, mutex::MutexGuard};
+use spin::Mutex;
 use thiserror_no_std::Error;
 use uefi::mem::memory_map::{MemoryMap, MemoryMapOwned};
 
-use crate::{
-    kprintln,
-    memory_map::{UEFI_PAGE_SIZE, is_available},
-};
+use crate::memory_map::{UEFI_PAGE_SIZE, is_available};
 
 static MEMORY_MANAGER: Mutex<BitmapMemoryManager> = Mutex::new(BitmapMemoryManager::new());
 

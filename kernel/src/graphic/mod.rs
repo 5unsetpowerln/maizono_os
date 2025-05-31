@@ -4,7 +4,7 @@ use common::graphic::RgbColor;
 use font::{GARBLED_FONT, U8_FONT};
 use glam::{U64Vec2, u64vec2};
 
-use crate::{error::Result, serial_println};
+use crate::error::Result;
 
 pub mod char;
 pub mod console;
@@ -48,7 +48,8 @@ pub trait PixelWriter: Debug {
     ) -> Result<()> {
         for x in position.x..position.x + width {
             for y in position.y..position.y + height {
-                self.write_pixel(u64vec2(x, y), color)?;
+                let pos = u64vec2(x, y);
+                self.write_pixel(pos, color)?;
             }
         }
         Ok(())
@@ -114,4 +115,8 @@ pub trait PixelWriter: Debug {
         }
         Ok(())
     }
+}
+
+pub trait PixelWriterCopyable: PixelWriter {
+    fn copy_internal_buffer(&mut self, position: U64Vec2, src: &[u32]);
 }

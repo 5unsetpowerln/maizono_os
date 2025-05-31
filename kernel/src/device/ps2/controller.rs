@@ -1,7 +1,5 @@
 use x86_64::instructions::port::{Port, PortReadOnly, PortWriteOnly};
 
-use crate::kprintln;
-
 // references:
 // https://wiki.osdev.org/%228042%22_PS/2_Controller
 

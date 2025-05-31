@@ -33,13 +33,14 @@ impl PixelFormat {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct GraphicInfo {
     pub width: u64,
     pub height: u64,
     pub stride: usize,
     pub bytes_per_pixel: u64,
     pub pixel_format: PixelFormat,
-    pub frame_buffer_addr: u64,
+    pub frame_buffer_addr: Option<u64>,
     pub frame_buffer_size: usize,
 }
 
@@ -64,9 +65,21 @@ impl GraphicInfo {
             stride,
             bytes_per_pixel,
             pixel_format,
-            frame_buffer_addr,
+            frame_buffer_addr: Some(frame_buffer_addr),
             frame_buffer_size,
         })
+    }
+
+    pub const fn new_empty() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            stride: 0,
+            bytes_per_pixel: 0,
+            pixel_format: PixelFormat::Bgr,
+            frame_buffer_addr: None,
+            frame_buffer_size: 0,
+        }
     }
 }
 

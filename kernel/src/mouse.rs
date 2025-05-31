@@ -1,11 +1,9 @@
 use alloc::sync::Arc;
 use common::graphic::RgbColor;
 use glam::{I64Vec2, U64Vec2, u64vec2};
-use spin::{Lazy, Mutex};
+use spin::Mutex;
 
-use crate::{device::ps2, error::Error, graphic::PixelWriter, kprintln};
-
-use super::frame_buffer;
+use crate::graphic::PixelWriter;
 
 pub const MOUSE_CURSOR_WIDTH: usize = 15;
 pub const MOUSE_CURSOR_HEIGHT: usize = 24;
@@ -17,7 +15,7 @@ enum MousePixel {
     Inner(RgbColor),
 }
 
-pub const MOUSE_TRANSPARENT_COLOR: RgbColor = RgbColor::rgb(0, 0, 1);
+pub const MOUSE_TRANSPARENT_COLOR: RgbColor = RgbColor::from(0x3c383600);
 
 const MOUSE_CURSOR_DATA: [[MousePixel; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT] = {
     const MOUSE_CURSOR_SHAPE: [[u8; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT] = [

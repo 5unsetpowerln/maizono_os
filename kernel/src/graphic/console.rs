@@ -8,10 +8,10 @@ use core::{
 use alloc::sync::Arc;
 use common::graphic::RgbColor;
 use glam::{U64Vec2, u64vec2};
-use spin::Mutex;
+use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
-use crate::{allocator::Locked, error::Result, serial_println};
+use crate::{allocator::Locked, error::Result};
 
 use super::{
     PixelWriter,
@@ -68,6 +68,7 @@ impl<const CAP: usize> Line<CAP> {
 }
 
 static CONSOLE: Locked<Console> = Locked::new(Console::new());
+static IS_INITIALIZED: Once<()> = Once::new();
 
 type ThreadSafeSharedPixelWriter = Arc<Mutex<(dyn PixelWriter + Send)>>;
 
@@ -197,7 +198,12 @@ pub fn init(
 ) -> Result<()> {
     let mut console = CONSOLE.lock();
     console.init(writer, bg_color, fg_color)?;
+    IS_INITIALIZED.call_once(|| ());
     Ok(())
+}
+
+pub fn is_initialized() -> bool {
+    IS_INITIALIZED.is_completed()
 }
 
 pub fn get_console_reference() -> &'static Locked<Console> {

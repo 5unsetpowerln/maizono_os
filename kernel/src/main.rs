@@ -6,6 +6,7 @@
 #![reexport_test_harness_main = "test_main"]
 #![feature(ascii_char)]
 #![feature(ascii_char_variants)]
+#![feature(ptr_as_ref_unchecked)]
 
 extern crate alloc;
 
@@ -18,6 +19,7 @@ mod gdt;
 mod graphic;
 mod interrupts;
 mod layer;
+mod logger;
 mod memory_map;
 mod message;
 mod mouse;
@@ -38,11 +40,13 @@ use common::{boot::BootInfo, graphic::RgbColor};
 use device::ps2;
 use glam::u64vec2;
 use graphic::{
+    PixelWriter,
     console::{self},
     frame_buffer::{self},
 };
 use layer::Layer;
-use spin::{Lazy, Mutex, Once};
+use log::{debug, error, info};
+use spin::Mutex;
 use window::Window;
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
@@ -110,6 +114,7 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     // console
     let console_window = create_window(console::WIDTH as u64, console::HEIGHT as u64, None);
     let console_layer = Layer::new(console_window.clone());
+
     console::init(
         console_window,
         RgbColor::from(0x3c383600),
@@ -145,6 +150,7 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
 }
 
 fn main(boot_info: &BootInfo) -> ! {
+    logger::init();
     paging::init();
     gdt::init();
     frame_manager::init(&boot_info.memory_map);
@@ -155,13 +161,13 @@ fn main(boot_info: &BootInfo) -> ! {
     pci::devices()
         .unwrap()
         .init()
-        .unwrap_or_else(|err| kprintln!("{:#?}", err));
+        .unwrap_or_else(|err| error!("{:#?}", err));
 
     let rsdp_addr = boot_info.rsdp_addr.unwrap_or_else(|| {
-        kprintln!("RSDP adderss wan't found. The kernel will panic.");
+        error!("RSDP adderss wan't found. The kernel will panic.");
         panic!();
     });
-    kprintln!("rsdp_addr: 0x{:X}", rsdp_addr.get());
+    info!("rsdp_addr: 0x{:X}", rsdp_addr.get());
 
     unsafe { acpi::init(rsdp_addr) };
 
@@ -175,7 +181,8 @@ fn main(boot_info: &BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
-    kprintln!("It didn't crash:)");
+    info!("It didn't crash:)");
+    layer::LAYER_MANAGER.lock().draw();
     loop {
         if message::count() > 0 {
             x86_64::instructions::interrupts::disable();
@@ -184,7 +191,7 @@ fn main(boot_info: &BootInfo) -> ! {
                     message::Message::PS2KeyboardInterrupt => {
                         // must receive data to prevent the block
                         let data = unsafe { ps2::keyboard().lock().read_data() };
-                        kprintln!("{:?}", data);
+                        debug!("{:?}", data);
                     }
                     message::Message::PS2MouseInterrupt => {
                         let event = unsafe { ps2::mouse().lock().receive_events() }
@@ -201,13 +208,13 @@ fn main(boot_info: &BootInfo) -> ! {
                                 let elapsed = timer::local_apic_timer_elapsed();
                                 timer::stop_local_apic_timer();
 
-                                serial_println!("elapsed: {}", elapsed);
+                                debug!("elapsed: {}", elapsed);
                             }
                             _ => {}
                         }
                     }
                     message::Message::LocalAPICTimerInterrupt => {
-                        kprintln!("local apic timer interrupt occured!");
+                        debug!("local apic timer interrupt occured!");
                     }
                 }
             }
@@ -235,7 +242,7 @@ where
 
 #[cfg(test)]
 fn test_runner(tests: &[&dyn Testable]) {
-    kprintln!("Running {} tests", tests.len());
+    serial_println!("Running {} tests", tests.len());
 
     for test in tests {
         test.run();
@@ -265,8 +272,7 @@ fn panic(info: &PanicInfo) -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    serial_println!("[panic]");
-    serial_println!("{}", info);
+    error!("{}", info);
     loop {
         unsafe { asm!("hlt") }
     }

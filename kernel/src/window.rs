@@ -1,15 +1,21 @@
-use alloc::{format, vec::Vec};
+use core::ptr::copy_nonoverlapping;
+
+use alloc::{format, sync::Arc, vec::Vec};
 use anyhow::Context;
 use common::graphic::{GraphicInfo, RgbColor};
 use glam::U64Vec2;
+use spin::Mutex;
 
 use crate::{
     error::Result,
-    graphic::{PixelWriter, frame_buffer::FrameBuffer},
-    serial_println,
+    graphic::{
+        PixelWriter, PixelWriterCopyable,
+        frame_buffer::{self, FrameBuffer},
+    },
 };
 
 type PixelWriterRef<'a> = &'a mut dyn PixelWriter;
+type PixelWriterCopyableRef<'a> = &'a mut dyn PixelWriterCopyable;
 
 #[derive(Debug)]
 pub struct Window {
@@ -39,9 +45,20 @@ impl Window {
         let row_len = row.len();
         data.resize(height as usize, row);
 
-        let mut shadow_buffer_data = Vec::new();
-        shadow_buffer_data.resize((width * height * 4) as usize, 0);
-        let shadow_buffer = FrameBuffer::new(width, height, shadow_buffer_data.as_mut_ptr());
+        // let mut shadow_buffer_data = Vec::new();
+        // shadow_buffer_data.resize((width * height * 4) as usize, 0);
+        // let shadow_buffer = ShadowBuffer::new(width, height, shadow_buffer_data);
+        let mut shadow_buffer = FrameBuffer::new_empty();
+        let graphic_info = GraphicInfo {
+            width,
+            height,
+            stride: width as usize,
+            pixel_format: frame_buffer::PIXEL_FORMAT.wait().clone(),
+            bytes_per_pixel: frame_buffer::BYTES_PER_PIXEL.wait().clone(),
+            frame_buffer_addr: None,
+            frame_buffer_size: 0,
+        };
+        shadow_buffer.init(&graphic_info);
 
         assert_eq!(data.len(), height as usize);
         assert_eq!(row_len, width as usize);
@@ -55,9 +72,10 @@ impl Window {
         };
     }
 
-    pub fn draw_to<'a>(&self, writer: PixelWriterRef<'a>, position: U64Vec2) {
+    pub fn draw_to<'a>(&self, writer: &Arc<Mutex<FrameBuffer>>, position: U64Vec2) {
         if let Some(transparent_color) = self.transparent_color {
             for y in 0..self.height {
+                let mut writer = writer.lock();
                 for x in 0..self.width {
                     let c: RgbColor = self.data[y as usize][x as usize];
                     if c != transparent_color {
@@ -74,19 +92,7 @@ impl Window {
                 }
             }
         } else {
-            for y in 0..self.height {
-                for x in 0..self.width {
-                    writer
-                        .write_pixel(
-                            U64Vec2 {
-                                x: position.x + x,
-                                y: position.y + y,
-                            },
-                            self.data[y as usize][x as usize],
-                        )
-                        .expect("Failed to write a pixel to the frame buffer.");
-                }
-            }
+            unsafe { writer.lock().copy(position, &self.shadow_buffer) };
         }
     }
 
@@ -105,32 +111,13 @@ impl PixelWriter for Window {
     }
 
     fn write_pixel(&mut self, position: U64Vec2, color: RgbColor) -> Result<()> {
-        // serial_println!(
-        //     "{:?} / {} * {}",
-        //     position,
-        //     self.data[0].len(),
-        //     self.data.len()
-        // );
-        self.data[position.y as usize][position.x as usize] = color;
-        // let ptr = self
-        //     .data
-        //     .get_mut(position.y as usize)
-        //     .with_context(|| {
-        //         format!(
-        //             "Failed to get a mutable reference of data[{}] / data[{}][{}]",
-        //             position.y, self.height, self.width
-        //         )
-        //     })
-        //     .unwrap()
-        //     .get_mut(position.x as usize)
-        //     .with_context(|| {
-        //         format!(
-        //             "Failed to get a mutable reference of data[{}][{}] / data[{}][{}].",
-        //             position.y, position.x, self.height, self.width
-        //         )
-        //     })
-        //     .unwrap();
-        // *ptr = color;
+        *self
+            .data
+            .get_mut(position.y as usize)
+            .unwrap()
+            .get_mut(position.x as usize)
+            .unwrap() = color;
+        self.shadow_buffer.write_pixel(position, color)?;
         Ok(())
     }
 }

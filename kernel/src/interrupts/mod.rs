@@ -3,11 +3,12 @@ pub mod apic;
 use crate::message::Message;
 use crate::{acpi, device::ps2};
 use apic::{IoApic, LocalApic, write_msr};
+use log::info;
 use spin::{Lazy, Once};
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
-use crate::{kprintln, message};
+use crate::message;
 
 pub static LOCAL_APIC: Once<LocalApic> = Once::new();
 
@@ -126,7 +127,7 @@ fn init_apic() {
 
     // Initializing I/O APIC
     {
-        kprintln!(
+        info!(
             "I/O APIC base: 0x{:X}",
             acpi::get_apic_info().io_apic_base()
         );
@@ -175,8 +176,7 @@ pub fn notify_end_of_interrupt() {
 }
 
 extern "x86-interrupt" fn breakpoint_handler(_stack_frame: InterruptStackFrame) {
-    // kprintln!("{:#?}", stack_frame);
-    kprintln!("breakpoint exception occured.");
+    info!("breakpoint exception occured.");
     notify_end_of_interrupt();
 }
 
