@@ -40,7 +40,7 @@ pub struct GraphicInfo {
     pub bytes_per_pixel: u64,
     pub pixel_format: PixelFormat,
     pub frame_buffer_addr: u64,
-    pub size: usize,
+    pub frame_buffer_size: usize,
 }
 
 impl GraphicInfo {
@@ -56,7 +56,7 @@ impl GraphicInfo {
         let pixel_format =
             PixelFormat::from_gop_pixel_format_type(&current_mode_info.pixel_format())?;
         let frame_buffer_addr = frame_buffer.as_mut_ptr() as u64;
-        let size = frame_buffer.size();
+        let frame_buffer_size = frame_buffer.size();
 
         Ok(Self {
             width,
@@ -65,7 +65,7 @@ impl GraphicInfo {
             bytes_per_pixel,
             pixel_format,
             frame_buffer_addr,
-            size,
+            frame_buffer_size,
         })
     }
 }

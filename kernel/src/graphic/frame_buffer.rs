@@ -1,4 +1,6 @@
-use crate::error::Result;
+use core::ptr;
+
+use crate::{error::Result, serial_println};
 use alloc::sync::Arc;
 use common::graphic::{GraphicInfo, PixelFormat, RgbColor};
 use glam::U64Vec2;
@@ -29,24 +31,20 @@ pub enum FrameBufferError {
 pub struct FrameBuffer {
     width: u64,
     height: u64,
-    bytes_per_pixel: u64,
-    stride: usize,
     pixel_format: PixelFormat,
-    framebuf_addr: u64,
-    framebuf_size: usize,
+    buffer_addr: u64,
+    buffer_size: u64,
     write_pixel: fn(&mut FrameBuffer, U64Vec2, RgbColor) -> Result<()>,
 }
 
 impl FrameBuffer {
-    const fn new() -> Self {
+    pub const fn new_empty() -> Self {
         Self {
             width: 0,
             height: 0,
-            bytes_per_pixel: 0,
-            stride: 0,
             pixel_format: PixelFormat::Bgr,
-            framebuf_addr: 0,
-            framebuf_size: 0,
+            buffer_addr: 0,
+            buffer_size: 0,
             write_pixel: write_pixel_bgr,
         }
     }
@@ -55,22 +53,45 @@ impl FrameBuffer {
         !(position.x >= self.width || position.y >= self.height)
     }
 
-    pub fn init(&mut self, graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
+    pub fn new(width: u64, height: u64, buffer_ptr: *mut u32) -> Self {
+        Self {
+            width,
+            height,
+            pixel_format: PixelFormat::Bgr,
+            buffer_addr: buffer_ptr as u64,
+            buffer_size: width * height * 4,
+            write_pixel: write_pixel_bgr,
+        }
+    }
+
+    pub fn from_graphic_info(&mut self, graphic_info: &GraphicInfo) {
+        if graphic_info.bytes_per_pixel != 4 {
+            panic!("Unsupported pixel size: {}", graphic_info.bytes_per_pixel);
+        }
+
+        if graphic_info.frame_buffer_size as u64 != graphic_info.width * graphic_info.height * 4 {
+            panic!(
+                "invalid size: graphic_info.frame_buffer_size != graphic_info.width * graphic_info.height * graphic_info.bytes_per_pixel"
+            );
+        }
+
+        serial_println!(
+            "size: {}, width * height * bytes_per_pixel: {}",
+            graphic_info.frame_buffer_size,
+            graphic_info.width * graphic_info.height * graphic_info.bytes_per_pixel
+        );
+
         *self = Self {
             width: graphic_info.width,
             height: graphic_info.height,
-            bytes_per_pixel: graphic_info.bytes_per_pixel,
-            stride: graphic_info.stride,
             pixel_format: graphic_info.pixel_format,
-            framebuf_addr: graphic_info.frame_buffer_addr,
-            framebuf_size: graphic_info.size,
+            buffer_addr: graphic_info.frame_buffer_addr,
+            buffer_size: graphic_info.frame_buffer_size as u64,
             write_pixel: match graphic_info.pixel_format {
-                PixelFormat::Rgb => write_pixel_rgb,
                 PixelFormat::Bgr => write_pixel_bgr,
+                PixelFormat::Rgb => write_pixel_rgb,
             },
         };
-        self.fill(bg_color)?;
-        Ok(())
     }
 }
 
@@ -92,12 +113,12 @@ fn write_pixel_rgb(self_: &mut FrameBuffer, position: U64Vec2, pixel: RgbColor) 
     if !self_.is_inside_buffer(position) {
         return Err(FrameBufferError::OutsideBufferError.into());
     }
-    let offset = (position.y * self_.width + position.x) * self_.bytes_per_pixel;
-    let pixel_ref = (self_.framebuf_addr + offset as u64) as *mut u32;
 
-    unsafe {
-        *pixel_ref = pixel.le();
-    };
+    let offset = position.y * self_.width + position.x;
+    let buffer_ptr = self_.buffer_addr as *const u32 as *mut u32;
+    let ptr = unsafe { buffer_ptr.add(offset as usize) };
+    unsafe { *ptr = pixel.le() };
+
     Ok(())
 }
 
@@ -106,21 +127,18 @@ fn write_pixel_bgr(self_: &mut FrameBuffer, position: U64Vec2, mut pixel: RgbCol
         return Err(FrameBufferError::OutsideBufferError.into());
     }
 
-    let offset = (position.y * self_.width + position.x) * self_.bytes_per_pixel;
-    let pixel_ref = (self_.framebuf_addr + offset as u64) as *mut u32;
+    let offset = position.y * self_.width + position.x;
+    let buffer_ptr = self_.buffer_addr as *const u32 as *mut u32;
+    let ptr = unsafe { buffer_ptr.add(offset as usize) };
     pixel.bgr();
+    unsafe { *ptr = pixel.le() };
 
-    unsafe {
-        *pixel_ref = pixel.le();
-    };
     Ok(())
 }
 
-pub fn init(graphic_info: &GraphicInfo, bg_color: RgbColor) -> Result<()> {
-    let mut frame_buffer = FrameBuffer::new();
-    frame_buffer
-        .init(graphic_info, bg_color)
-        .expect("Failed to construct the FrameBuffer.");
+pub fn init(graphic_info: &GraphicInfo) -> Result<()> {
+    let mut frame_buffer = FrameBuffer::new_empty();
+    frame_buffer.from_graphic_info(graphic_info);
 
     FRAME_BUFFER_WIDTH.call_once(|| frame_buffer.width() as usize);
     FRAME_BUFFER_HEIGHT.call_once(|| frame_buffer.height() as usize);

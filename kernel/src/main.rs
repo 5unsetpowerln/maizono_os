@@ -91,8 +91,7 @@ struct LayerIDs {
 }
 
 fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
-    frame_buffer::init(&boot_info.graphic_info, RgbColor::from(0x28282800))
-        .expect("Failed to initialize the frame buffer.");
+    frame_buffer::init(&boot_info.graphic_info).expect("Failed to initialize the frame buffer.");
 
     let create_window = |width: u64, height: u64, transparent_color: Option<RgbColor>| {
         let mut window = Window::new();
@@ -193,16 +192,16 @@ fn main(boot_info: &BootInfo) -> ! {
 
                         match event {
                             mouse::MouseEvent::Move { displacement } => {
-                                // timer::start_local_apic_timer();
+                                let mut layer_manager = layer::LAYER_MANAGER.lock();
+                                layer_manager.move_relative(layer_ids.mouse_layer_id, displacement);
 
-                                layer::LAYER_MANAGER
-                                    .lock()
-                                    .move_relative(layer_ids.mouse_layer_id, displacement);
-                                layer::LAYER_MANAGER.lock().draw();
+                                timer::start_local_apic_timer();
 
-                                // let elapsed = timer::local_apic_timer_elapsed();
-                                // timer::stop_local_apic_timer();
-                                // kprintln!("elapsed: {}", elapsed);
+                                layer_manager.draw();
+                                let elapsed = timer::local_apic_timer_elapsed();
+                                timer::stop_local_apic_timer();
+
+                                serial_println!("elapsed: {}", elapsed);
                             }
                             _ => {}
                         }
