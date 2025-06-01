@@ -3,14 +3,14 @@ use core::ptr::copy_nonoverlapping;
 use alloc::{format, sync::Arc, vec::Vec};
 use anyhow::Context;
 use common::graphic::{GraphicInfo, RgbColor};
-use glam::U64Vec2;
+use glam::{U64Vec2, U64Vec4};
 use log::debug;
 use spin::Mutex;
 
 use crate::{
     error::Result,
     graphic::{
-        PixelWriter, PixelWriterCopyable,
+        PixelWriter, PixelWriterCopyable, Rectangle,
         frame_buffer::{self, FrameBuffer},
     },
 };
@@ -23,7 +23,6 @@ pub struct Window {
     width: u64,
     height: u64,
     data: Vec<Vec<RgbColor>>,
-    // transparent_color: Option<RgbColor>,
     consider_transparent: bool,
     shadow_buffer: FrameBuffer,
 }
@@ -97,6 +96,12 @@ impl Window {
 
     pub fn set_transparent_color(&mut self, value: bool) {
         self.consider_transparent = value;
+    }
+
+    pub fn move_rect(&mut self, dst_pos: U64Vec2, src_rect: Rectangle) {
+        unsafe {
+            self.shadow_buffer.move_rect(dst_pos, src_rect);
+        }
     }
 }
 

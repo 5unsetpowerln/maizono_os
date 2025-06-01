@@ -1,12 +1,12 @@
-use crate::error::Result;
+use crate::{error::Result, serial_println};
 use alloc::{sync::Arc, vec::Vec};
 use common::graphic::{GraphicInfo, PixelFormat, RgbColor};
-use glam::U64Vec2;
-use log::info;
+use glam::{U64Vec2, U64Vec4, u64vec2};
+use log::{debug, info};
 use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
-use super::{PixelWriter, PixelWriterCopyable};
+use super::{PixelWriter, PixelWriterCopyable, Rectangle};
 
 pub static FRAME_BUFFER: Once<Arc<Mutex<FrameBuffer>>> = Once::new();
 pub static FRAME_BUFFER_WIDTH: Once<usize> = Once::new();
@@ -109,6 +109,62 @@ impl FrameBuffer {
             }
         }
     }
+
+    pub unsafe fn move_rect(&mut self, dst_pos: U64Vec2, src_rect: Rectangle) {
+        let bytes_per_pixel = self.graphic_info.bytes_per_pixel;
+        let bytes_per_scan_line = bytes_per_pixel * self.graphic_info.width;
+
+        assert!(src_rect.pos.x + src_rect.width <= self.graphic_info.width);
+        assert!(src_rect.pos.y + src_rect.height <= self.graphic_info.height);
+        assert!(dst_pos.x + src_rect.width <= self.graphic_info.width);
+        assert!(dst_pos.y + src_rect.height <= self.graphic_info.height);
+
+        if dst_pos.y < src_rect.pos.y {
+            let mut dst_ptr = frame_buffer_mut_ptr_at(dst_pos, &self.graphic_info);
+            let mut src_ptr = frame_buffer_ptr_at(src_rect.pos, &self.graphic_info);
+
+            for _ in 0..src_rect.height {
+                unsafe {
+                    dst_ptr.copy_from_nonoverlapping(
+                        src_ptr,
+                        (src_rect.width * bytes_per_pixel) as usize,
+                    );
+                    dst_ptr = dst_ptr.add(bytes_per_scan_line as usize);
+                    src_ptr = src_ptr.add(bytes_per_scan_line as usize);
+                };
+            }
+        } else {
+            let mut dst_ptr =
+                frame_buffer_mut_ptr_at(dst_pos + u64vec2(0, src_rect.height), &self.graphic_info);
+            let mut src_ptr = frame_buffer_ptr_at(
+                src_rect.pos + u64vec2(0, src_rect.height),
+                &self.graphic_info,
+            );
+
+            for _ in 0..src_rect.height {
+                unsafe {
+                    dst_ptr.copy_from_nonoverlapping(
+                        src_ptr,
+                        (src_rect.width * bytes_per_pixel) as usize,
+                    );
+                    dst_ptr = dst_ptr.sub(bytes_per_scan_line as usize);
+                    src_ptr = src_ptr.sub(bytes_per_scan_line as usize);
+                }
+            }
+        }
+    }
+}
+
+fn frame_buffer_ptr_at(pos: U64Vec2, graphic_info: &GraphicInfo) -> *const u8 {
+    let addr = graphic_info.frame_buffer_addr.unwrap()
+        + graphic_info.bytes_per_pixel * (graphic_info.width * pos.y + pos.x);
+    addr as *const u8
+}
+
+fn frame_buffer_mut_ptr_at(pos: U64Vec2, graphic_info: &GraphicInfo) -> *mut u8 {
+    let addr = graphic_info.frame_buffer_addr.unwrap()
+        + graphic_info.bytes_per_pixel * (graphic_info.width * pos.y + pos.x);
+    addr as *mut u8
 }
 
 impl PixelWriter for FrameBuffer {

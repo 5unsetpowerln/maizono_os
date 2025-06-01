@@ -53,7 +53,7 @@ static MOUSE_CURSOR_DATA: Lazy<[[MousePixel; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_H
                 mouse_cursor[dy][dx] = match MOUSE_CURSOR_SHAPE[dy][dx] {
                     0 => continue,
                     1 => MousePixel::Border(RgbColor::from(0xffffff00)),
-                    2 => MousePixel::Inner(RgbColor::from(0xcc241d00)),
+                    2 => MousePixel::Inner(RgbColor::from(0x00000000)),
                     _ => panic!("unexpected mouse pixel."),
                 };
             }

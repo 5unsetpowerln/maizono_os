@@ -1,38 +1,67 @@
 use core::mem::MaybeUninit;
 
 use alloc::{format, sync::Arc, vec::Vec};
-use glam::{I64Vec2, U64Vec2};
+use glam::{I64Vec2, U64Vec2, u64vec2};
+use log::debug;
 use slotmap::SlotMap;
 use spin::{Lazy, Mutex};
 
 use crate::{
-    graphic::{PixelWriter, PixelWriterCopyable, frame_buffer::FrameBuffer},
+    graphic::{
+        PixelWriter, PixelWriterCopyable,
+        frame_buffer::{self, FrameBuffer},
+    },
     window::Window,
 };
 
 pub struct Layer {
     id: usize,
     origin_position: U64Vec2,
+    max_position: U64Vec2,
     window: Arc<Mutex<Window>>,
 }
 
 impl Layer {
     pub fn new(window: Arc<Mutex<Window>>) -> Self {
+        let max_position = {
+            let locked = window.lock();
+
+            let frame_buffer_width = frame_buffer::FRAME_BUFFER_WIDTH.wait().clone() as u64;
+            let frame_buffer_height = frame_buffer::FRAME_BUFFER_HEIGHT.wait().clone() as u64;
+            let window_width = locked.width();
+            let window_height = locked.height();
+
+            debug!(
+                "frame_buffer_width: {}, window_width: {}",
+                frame_buffer_width, window_width
+            );
+            debug!(
+                "frame_buffer_height: {}, window_height: {}",
+                frame_buffer_height, window_height
+            );
+
+            let max_x = *frame_buffer::FRAME_BUFFER_WIDTH.wait() as u64 - locked.width();
+            let max_y = *frame_buffer::FRAME_BUFFER_HEIGHT.wait() as u64 - locked.height();
+            u64vec2(max_x, max_y)
+        };
+
         Self {
             id: 0,
             origin_position: U64Vec2::new(0, 0),
+            max_position,
             window,
         }
     }
 
     fn move_absolute(&mut self, origin_position: U64Vec2) {
-        self.origin_position = origin_position;
+        self.origin_position = origin_position.min(self.max_position);
     }
 
     fn move_relative(&mut self, origin_position_offset: I64Vec2) {
         self.origin_position = self
             .origin_position
-            .saturating_add_signed(origin_position_offset);
+            .saturating_add_signed(origin_position_offset)
+            .min(self.max_position);
     }
 
     fn draw_to<'a>(&mut self, writer: &Arc<Mutex<FrameBuffer>>) {

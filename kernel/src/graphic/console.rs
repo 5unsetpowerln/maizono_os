@@ -7,19 +7,20 @@ use core::{
 
 use alloc::sync::Arc;
 use common::graphic::RgbColor;
-use glam::{U64Vec2, u64vec2};
+use glam::{U64Vec2, U64Vec4, u64vec2, u64vec4};
 use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
-use crate::{allocator::Locked, error::Result};
+use crate::{allocator::Locked, error::Result, window::Window};
 
 use super::{
     PixelWriter,
     font::{self, CHARACTER_HEIGHT, CHARACTER_WIDTH},
+    rectangle,
 };
 
 const ROWS: usize = 25;
-const COLUMNS: usize = 150;
+const COLUMNS: usize = 100;
 pub const WIDTH: usize = COLUMNS * CHARACTER_WIDTH;
 pub const HEIGHT: usize = ROWS * CHARACTER_HEIGHT;
 
@@ -70,15 +71,13 @@ impl<const CAP: usize> Line<CAP> {
 static CONSOLE: Locked<Console> = Locked::new(Console::new());
 static IS_INITIALIZED: Once<()> = Once::new();
 
-type ThreadSafeSharedPixelWriter = Arc<Mutex<(dyn PixelWriter + Send)>>;
-
 pub struct Console {
     buffer: [Line<COLUMNS>; ROWS],
     bg_color: RgbColor,
     fg_color: RgbColor,
     cursor_row: u64,
     cursor_column: u64,
-    writer: MaybeUninit<ThreadSafeSharedPixelWriter>,
+    window: MaybeUninit<Arc<Mutex<Window>>>,
 }
 
 impl fmt::Write for Console {
@@ -96,17 +95,17 @@ impl Console {
             fg_color: RgbColor::rgb(0x28, 0x28, 0x28, false),
             cursor_row: 0,
             cursor_column: 0,
-            writer: MaybeUninit::uninit(),
+            window: MaybeUninit::uninit(),
         }
     }
 
     fn init(
         &mut self,
-        writer: ThreadSafeSharedPixelWriter,
+        window: Arc<Mutex<Window>>,
         bg_color: RgbColor,
         fg_color: RgbColor,
     ) -> Result<()> {
-        writer
+        window
             .lock()
             .fill_rect(u64vec2(0, 0), WIDTH as u64, HEIGHT as u64, bg_color)?;
 
@@ -116,52 +115,35 @@ impl Console {
             fg_color,
             cursor_row: 0,
             cursor_column: 0,
-            writer: MaybeUninit::new(writer),
+            window: MaybeUninit::new(window),
         };
 
         Ok(())
     }
 
-    pub fn set_writer(&mut self, writer: ThreadSafeSharedPixelWriter) {
-        self.writer = MaybeUninit::new(writer);
-    }
-
     fn new_line(&mut self) {
-        let writer = unsafe { &*self.writer.as_ptr() };
+        let window = unsafe { &*self.window.as_ptr() };
 
         self.cursor_column = 0;
         if self.cursor_row < ROWS as u64 - 1 {
             self.cursor_row += 1;
         } else {
-            writer
+            let move_src_rect = rectangle(
+                u64vec2(0, CHARACTER_HEIGHT as u64),
+                WIDTH as u64,
+                (HEIGHT - CHARACTER_HEIGHT) as u64,
+            );
+
+            window.lock().move_rect(u64vec2(0, 0), move_src_rect);
+            window
                 .lock()
                 .fill_rect(
-                    u64vec2(0, 0),
-                    (COLUMNS * CHARACTER_WIDTH) as u64,
-                    (ROWS * CHARACTER_HEIGHT) as u64,
-                    self.bg_color.into(),
+                    u64vec2(0, (CHARACTER_HEIGHT * (ROWS - 1)) as u64),
+                    WIDTH as u64,
+                    CHARACTER_HEIGHT as u64,
+                    self.bg_color,
                 )
-                .expect("Failed to fill up the console.");
-
-            for row in 0..ROWS - 1 {
-                self.buffer[row] = self.buffer[row + 1];
-                let mut writer_locked = writer.lock();
-
-                let line = self.buffer[row];
-                for (i, c) in line.chars[0..line.length].iter().enumerate() {
-                    writer_locked
-                        .write_char(
-                            u64vec2(
-                                (font::CHARACTER_WIDTH * i) as u64,
-                                (font::CHARACTER_HEIGHT * row) as u64,
-                            ),
-                            *c,
-                            self.fg_color,
-                        )
-                        .unwrap();
-                }
-            }
-
+                .unwrap();
             *self.buffer.last_mut().expect("console buffer is empty") = Line::<COLUMNS>::null();
         }
     }
@@ -171,7 +153,7 @@ impl Console {
             if *c == ascii::Char::LineFeed {
                 self.new_line()
             } else if self.cursor_column < COLUMNS as u64 - 1 {
-                let writer = unsafe { &*self.writer.as_ptr() };
+                let writer = unsafe { &*self.window.as_ptr() };
 
                 writer
                     .lock()
@@ -191,13 +173,9 @@ impl Console {
     }
 }
 
-pub fn init(
-    writer: ThreadSafeSharedPixelWriter,
-    bg_color: RgbColor,
-    fg_color: RgbColor,
-) -> Result<()> {
+pub fn init(window: Arc<Mutex<Window>>, bg_color: RgbColor, fg_color: RgbColor) -> Result<()> {
     let mut console = CONSOLE.lock();
-    console.init(writer, bg_color, fg_color)?;
+    console.init(window, bg_color, fg_color)?;
     IS_INITIALIZED.call_once(|| ());
     Ok(())
 }

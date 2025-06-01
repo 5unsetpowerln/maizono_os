@@ -37,7 +37,7 @@ use core::panic::PanicInfo;
 
 use alloc::sync::Arc;
 use common::{boot::BootInfo, graphic::RgbColor};
-use device::ps2;
+use device::ps2::{self, controller::ControllerError, mouse::MouseError};
 use glam::u64vec2;
 use graphic::{
     PixelWriter,
@@ -109,12 +109,20 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
         *frame_buffer::FRAME_BUFFER_HEIGHT.wait() as u64,
         false,
     );
+    bg_window
+        .lock()
+        .fill_rect(
+            u64vec2(0, 0),
+            frame_buffer::FRAME_BUFFER_WIDTH.wait().clone() as u64,
+            frame_buffer::FRAME_BUFFER_HEIGHT.wait().clone() as u64,
+            RgbColor::from(0xcc241d00),
+        )
+        .unwrap();
     let bg_layer = Layer::new(bg_window);
 
     // console
     let console_window = create_window(console::WIDTH as u64, console::HEIGHT as u64, false);
     let console_layer = Layer::new(console_window.clone());
-
     console::init(
         console_window,
         RgbColor::from(0x3c383600),
@@ -194,11 +202,10 @@ fn main(boot_info: &BootInfo) -> ! {
                         debug!("{:?}", data);
                     }
                     message::Message::PS2MouseInterrupt => {
-                        let event = unsafe { ps2::mouse().lock().receive_events() }
-                            .expect("Failed to receive events");
+                        let event = unsafe { ps2::mouse().lock().receive_events() };
 
                         match event {
-                            mouse::MouseEvent::Move { displacement } => {
+                            Ok(mouse::MouseEvent::Move { displacement }) => {
                                 let mut layer_manager = layer::LAYER_MANAGER.lock();
                                 layer_manager.move_relative(layer_ids.mouse_layer_id, displacement);
 
@@ -210,6 +217,14 @@ fn main(boot_info: &BootInfo) -> ! {
 
                                 debug!("elapsed: {}", elapsed);
                             }
+                            Err(err) => match err {
+                                MouseError::ControllerError(ControllerError::Timeout) => {
+                                    error!("mouse timeout")
+                                }
+                                _ => {
+                                    panic!("{:?}", err);
+                                }
+                            },
                             _ => {}
                         }
                     }
@@ -218,6 +233,8 @@ fn main(boot_info: &BootInfo) -> ! {
                     }
                 }
             }
+
+            layer::LAYER_MANAGER.lock().draw();
             x86_64::instructions::interrupts::enable();
         } else {
             unsafe { asm!("hlt") }

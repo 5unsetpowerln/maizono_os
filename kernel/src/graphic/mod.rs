@@ -120,3 +120,13 @@ pub trait PixelWriter: Debug {
 pub trait PixelWriterCopyable: PixelWriter {
     fn copy_internal_buffer(&mut self, position: U64Vec2, src: &[u32]);
 }
+
+pub struct Rectangle {
+    pub pos: U64Vec2,
+    pub width: u64,
+    pub height: u64,
+}
+
+pub fn rectangle(pos: U64Vec2, width: u64, height: u64) -> Rectangle {
+    Rectangle { pos, width, height }
+}
