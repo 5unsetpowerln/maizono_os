@@ -97,9 +97,9 @@ struct LayerIDs {
 fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     frame_buffer::init(&boot_info.graphic_info).expect("Failed to initialize the frame buffer.");
 
-    let create_window = |width: u64, height: u64, transparent_color: Option<RgbColor>| {
+    let create_window = |width: u64, height: u64, consider_transparent: bool| {
         let mut window = Window::new();
-        window.init(width, height, transparent_color);
+        window.init(width, height, consider_transparent);
         Arc::new(Mutex::new(window))
     };
 
@@ -107,12 +107,12 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     let bg_window = create_window(
         *frame_buffer::FRAME_BUFFER_WIDTH.wait() as u64,
         *frame_buffer::FRAME_BUFFER_HEIGHT.wait() as u64,
-        None,
+        false,
     );
     let bg_layer = Layer::new(bg_window);
 
     // console
-    let console_window = create_window(console::WIDTH as u64, console::HEIGHT as u64, None);
+    let console_window = create_window(console::WIDTH as u64, console::HEIGHT as u64, false);
     let console_layer = Layer::new(console_window.clone());
 
     console::init(
@@ -126,7 +126,7 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     let mouse_window = create_window(
         mouse::MOUSE_CURSOR_WIDTH as u64,
         mouse::MOUSE_CURSOR_HEIGHT as u64,
-        Some(mouse::MOUSE_TRANSPARENT_COLOR),
+        true,
     );
     mouse::draw_mouse_cursor(mouse_window.clone(), u64vec2(0, 0));
     let mouse_layer = Layer::new(mouse_window);

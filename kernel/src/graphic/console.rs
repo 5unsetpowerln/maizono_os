@@ -92,8 +92,8 @@ impl Console {
     const fn new() -> Self {
         Self {
             buffer: [Line::<COLUMNS>::null(); ROWS],
-            bg_color: RgbColor::rgb(0x28, 0x28, 0x28),
-            fg_color: RgbColor::rgb(0x28, 0x28, 0x28),
+            bg_color: RgbColor::rgb(0x28, 0x28, 0x28, false),
+            fg_color: RgbColor::rgb(0x28, 0x28, 0x28, false),
             cursor_row: 0,
             cursor_column: 0,
             writer: MaybeUninit::uninit(),

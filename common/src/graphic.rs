@@ -153,41 +153,61 @@ impl GraphicInfo {
 // }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RgbColor(u32);
+// pub struct RgbColor(u32);
+pub struct RgbColor {
+    data: u32,
+    pub is_transparent: bool,
+}
 
 impl RgbColor {
     pub const fn new() -> Self {
-        Self(0x00000000)
+        Self {
+            data: 0,
+            is_transparent: false,
+        }
     }
 
-    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self(u32::from_be_bytes([r, g, b, 0x00]))
+    pub const fn transparent() -> Self {
+        Self {
+            data: 0,
+            is_transparent: true,
+        }
+    }
+
+    pub const fn rgb(r: u8, g: u8, b: u8, is_t: bool) -> Self {
+        Self {
+            data: u32::from_be_bytes([r, g, b, 0x00]),
+            is_transparent: is_t,
+        }
     }
 
     pub const fn get(&self) -> u32 {
-        self.0
+        self.data
     }
 
     pub const fn to_bgr(&mut self) {
-        let r = ((self.0 & 0xff000000) >> 0x18) as u8;
-        let g = ((self.0 & 0xff0000) >> 0x10) as u8;
-        let b = ((self.0 & 0xff00) >> 0x8) as u8;
-        self.0 = u32::from_be_bytes([b, g, r, 0])
+        let r = ((self.data & 0xff000000) >> 0x18) as u8;
+        let g = ((self.data & 0xff0000) >> 0x10) as u8;
+        let b = ((self.data & 0xff00) >> 0x8) as u8;
+        self.data = u32::from_be_bytes([b, g, r, 0])
     }
 
     pub const fn from(value: u32) -> Self {
-        Self(value)
+        Self {
+            data: value,
+            is_transparent: false,
+        }
     }
 
     pub fn le(&self) -> u32 {
-        u32::from_be(self.0)
+        u32::from_be(self.data)
     }
 
     pub fn bgr(&mut self) {
-        let r = ((self.0 & 0xff000000) >> 0x18) as u8;
-        let g = ((self.0 & 0xff0000) >> 0x10) as u8;
-        let b = ((self.0 & 0xff00) >> 0x8) as u8;
-        self.0 = u32::from_be_bytes([b, g, r, 0]);
+        let r = ((self.data & 0xff000000) >> 0x18) as u8;
+        let g = ((self.data & 0xff0000) >> 0x10) as u8;
+        let b = ((self.data & 0xff00) >> 0x8) as u8;
+        self.data = u32::from_be_bytes([b, g, r, 0]);
     }
 }
 

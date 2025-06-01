@@ -4,6 +4,7 @@ use alloc::{format, sync::Arc, vec::Vec};
 use anyhow::Context;
 use common::graphic::{GraphicInfo, RgbColor};
 use glam::U64Vec2;
+use log::debug;
 use spin::Mutex;
 
 use crate::{
@@ -22,7 +23,8 @@ pub struct Window {
     width: u64,
     height: u64,
     data: Vec<Vec<RgbColor>>,
-    transparent_color: Option<RgbColor>,
+    // transparent_color: Option<RgbColor>,
+    consider_transparent: bool,
     shadow_buffer: FrameBuffer,
 }
 
@@ -32,12 +34,12 @@ impl Window {
             width: 0,
             height: 0,
             data: Vec::new(),
-            transparent_color: None,
+            consider_transparent: false,
             shadow_buffer: FrameBuffer::new_empty(),
         }
     }
 
-    pub fn init(&mut self, width: u64, height: u64, transparent_color: Option<RgbColor>) {
+    pub fn init(&mut self, width: u64, height: u64, consider_transparent: bool) {
         let mut data = Vec::new();
 
         let mut row = Vec::new();
@@ -45,9 +47,6 @@ impl Window {
         let row_len = row.len();
         data.resize(height as usize, row);
 
-        // let mut shadow_buffer_data = Vec::new();
-        // shadow_buffer_data.resize((width * height * 4) as usize, 0);
-        // let shadow_buffer = ShadowBuffer::new(width, height, shadow_buffer_data);
         let mut shadow_buffer = FrameBuffer::new_empty();
         let graphic_info = GraphicInfo {
             width,
@@ -67,18 +66,18 @@ impl Window {
             width,
             height,
             data,
-            transparent_color,
+            consider_transparent,
             shadow_buffer,
         };
     }
 
     pub fn draw_to<'a>(&self, writer: &Arc<Mutex<FrameBuffer>>, position: U64Vec2) {
-        if let Some(transparent_color) = self.transparent_color {
+        if self.consider_transparent {
             for y in 0..self.height {
                 let mut writer = writer.lock();
                 for x in 0..self.width {
                     let c: RgbColor = self.data[y as usize][x as usize];
-                    if c != transparent_color {
+                    if !c.is_transparent {
                         writer
                             .write_pixel(
                                 U64Vec2 {
@@ -96,8 +95,8 @@ impl Window {
         }
     }
 
-    pub fn set_transparent_color(&mut self, color: RgbColor) {
-        self.transparent_color = Some(color);
+    pub fn set_transparent_color(&mut self, value: bool) {
+        self.consider_transparent = value;
     }
 }
 

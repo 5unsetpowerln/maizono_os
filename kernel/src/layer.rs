@@ -99,7 +99,7 @@ impl LayerManager {
     }
 
     pub fn draw(&mut self) {
-        let mut writer = unsafe { &*self.writer.as_ptr() };
+        let writer = unsafe { &*self.writer.as_ptr() };
 
         for layer in self.layer_stack.iter() {
             self.layers[*layer].draw_to(writer);
