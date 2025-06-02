@@ -72,15 +72,13 @@ impl Canvas {
             for y in 0..self.height {
                 let mut writer = frame_buffer.lock();
                 for x in 0..self.width {
-                    let current_pos = pos + u64vec2(x, y);
-                    let c = self.shadow_buffer.at(current_pos);
+                    let c = self.shadow_buffer.at(u64vec2(x, y));
 
                     if !c.is_transparent() {
                         writer
-                            .write_pixel(current_pos, c)
+                            .write_pixel(pos + u64vec2(x, y), c)
                             .expect("Failed to write a pixel to the frame buffer.");
                     } else {
-                        serial_println!("world");
                     }
                 }
             }

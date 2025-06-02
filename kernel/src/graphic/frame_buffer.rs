@@ -95,9 +95,6 @@ impl FrameBuffer {
         let mut dst_ptr = get_hw_frame_buffer_mut_ptr_at(pos, &self.graphic_info);
         let mut src_ptr = src.graphic_info.frame_buffer_addr.unwrap() as *mut u8;
 
-        serial_println!("starting copy. height: {}", src_height);
-        serial_println!("shadow_buffer : {}", (src.buffer.len() / 4));
-        serial_println!("width * height: {}", src_width * src_height);
         for _ in 0..src_height {
             unsafe {
                 dst_ptr.copy_from(src_ptr, bytes_per_src_width as usize);
@@ -108,7 +105,6 @@ impl FrameBuffer {
     }
 
     pub unsafe fn move_rect(&mut self, dst_pos: U64Vec2, src_rect: Rectangle) {
-        serial_println!("move_rect called");
         let bytes_per_pixel = self.graphic_info.bytes_per_pixel;
         let bytes_per_scan_line = bytes_per_pixel * self.graphic_info.width;
 
@@ -156,15 +152,9 @@ impl FrameBuffer {
             let ptr = get_hw_frame_buffer_ptr_at(pos, &self.graphic_info) as *const u32;
             let value = unsafe { *ptr };
 
-            // serial_println!("0x{:x}", value);
             RgbColor::from_bgr_le(value)
         } else {
             unreachable!()
-            // let idx = (pos.y * self.graphic_info.width + pos.x) * self.graphic_info.bytes_per_pixel;
-            // let idx = idx as usize;
-            // let slice = self.buffer.get(idx..idx + 4).unwrap().as_ptr() as *const u32;
-            // let value = unsafe { *slice };
-            // RgbColor::from_bgr_le(value)
         }
     }
 }
