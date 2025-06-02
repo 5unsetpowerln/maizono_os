@@ -1,15 +1,15 @@
 use core::{ascii, fmt::Debug, ops::Deref};
 
+use alloc::sync::Arc;
 use common::graphic::RgbColor;
 use font::{GARBLED_FONT, U8_FONT};
 use glam::{U64Vec2, u64vec2};
+use spin::Mutex;
 
-use crate::error::Result;
-
-pub mod char;
-pub mod console;
-pub mod font;
-pub mod frame_buffer;
+use crate::{
+    error::Result,
+    graphic::{canvas::Canvas, layer::Layer},
+};
 
 pub trait PixelWriter: Debug {
     fn width(&self) -> u64;
@@ -130,3 +130,31 @@ pub struct Rectangle {
 pub fn rectangle(pos: U64Vec2, width: u64, height: u64) -> Rectangle {
     Rectangle { pos, width, height }
 }
+
+pub fn create_canvas_and_layer(
+    width: u64,
+    height: u64,
+    consider_transparent: bool,
+) -> (Arc<Mutex<Canvas>>, Layer) {
+    let canvas = create_arc_mutex_canvas(width, height, consider_transparent);
+    let layer = Layer::new(canvas.clone());
+    (canvas, layer)
+}
+
+pub fn create_arc_mutex_canvas(
+    width: u64,
+    height: u64,
+    consider_transparent: bool,
+) -> Arc<Mutex<Canvas>> {
+    let mut canvas = Canvas::new();
+    canvas.init(width, height, consider_transparent);
+    Arc::new(Mutex::new(canvas))
+}
+
+pub mod canvas;
+pub mod char;
+pub mod console;
+pub mod font;
+pub mod frame_buffer;
+pub mod layer;
+pub mod window;

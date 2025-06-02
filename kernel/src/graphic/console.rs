@@ -6,12 +6,12 @@ use core::{
 };
 
 use alloc::sync::Arc;
-use common::graphic::RgbColor;
+use common::graphic::{RgbColor, rgb};
 use glam::{U64Vec2, U64Vec4, u64vec2, u64vec4};
 use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
-use crate::{allocator::Locked, error::Result, window::Window};
+use crate::{allocator::Locked, error::Result, graphic::canvas::Canvas};
 
 use super::{
     PixelWriter,
@@ -77,7 +77,7 @@ pub struct Console {
     fg_color: RgbColor,
     cursor_row: u64,
     cursor_column: u64,
-    window: MaybeUninit<Arc<Mutex<Window>>>,
+    canvas: MaybeUninit<Arc<Mutex<Canvas>>>,
 }
 
 impl fmt::Write for Console {
@@ -91,21 +91,21 @@ impl Console {
     const fn new() -> Self {
         Self {
             buffer: [Line::<COLUMNS>::null(); ROWS],
-            bg_color: RgbColor::rgb(0x28, 0x28, 0x28, false),
-            fg_color: RgbColor::rgb(0x28, 0x28, 0x28, false),
+            bg_color: rgb(0x282828),
+            fg_color: rgb(0x282828),
             cursor_row: 0,
             cursor_column: 0,
-            window: MaybeUninit::uninit(),
+            canvas: MaybeUninit::uninit(),
         }
     }
 
     fn init(
         &mut self,
-        window: Arc<Mutex<Window>>,
+        canvas: Arc<Mutex<Canvas>>,
         bg_color: RgbColor,
         fg_color: RgbColor,
     ) -> Result<()> {
-        window
+        canvas
             .lock()
             .fill_rect(u64vec2(0, 0), WIDTH as u64, HEIGHT as u64, bg_color)?;
 
@@ -115,14 +115,14 @@ impl Console {
             fg_color,
             cursor_row: 0,
             cursor_column: 0,
-            window: MaybeUninit::new(window),
+            canvas: MaybeUninit::new(canvas),
         };
 
         Ok(())
     }
 
     fn new_line(&mut self) {
-        let window = unsafe { &*self.window.as_ptr() };
+        let canvas = unsafe { &*self.canvas.as_ptr() };
 
         self.cursor_column = 0;
         if self.cursor_row < ROWS as u64 - 1 {
@@ -134,8 +134,8 @@ impl Console {
                 (HEIGHT - CHARACTER_HEIGHT) as u64,
             );
 
-            window.lock().move_rect(u64vec2(0, 0), move_src_rect);
-            window
+            canvas.lock().move_rect(u64vec2(0, 0), move_src_rect);
+            canvas
                 .lock()
                 .fill_rect(
                     u64vec2(0, (CHARACTER_HEIGHT * (ROWS - 1)) as u64),
@@ -153,7 +153,7 @@ impl Console {
             if *c == ascii::Char::LineFeed {
                 self.new_line()
             } else if self.cursor_column < COLUMNS as u64 - 1 {
-                let writer = unsafe { &*self.window.as_ptr() };
+                let writer = unsafe { &*self.canvas.as_ptr() };
 
                 writer
                     .lock()
@@ -173,9 +173,9 @@ impl Console {
     }
 }
 
-pub fn init(window: Arc<Mutex<Window>>, bg_color: RgbColor, fg_color: RgbColor) -> Result<()> {
+pub fn init(canvas: Arc<Mutex<Canvas>>, bg_color: RgbColor, fg_color: RgbColor) -> Result<()> {
     let mut console = CONSOLE.lock();
-    console.init(window, bg_color, fg_color)?;
+    console.init(canvas, bg_color, fg_color)?;
     IS_INITIALIZED.call_once(|| ());
     Ok(())
 }

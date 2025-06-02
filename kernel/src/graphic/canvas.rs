@@ -3,7 +3,7 @@ use core::ptr::copy_nonoverlapping;
 use alloc::{format, sync::Arc, vec::Vec};
 use anyhow::Context;
 use common::graphic::{GraphicInfo, RgbColor};
-use glam::{U64Vec2, U64Vec4};
+use glam::{U64Vec2, U64Vec4, u64vec2};
 use log::debug;
 use spin::Mutex;
 
@@ -13,38 +13,39 @@ use crate::{
         PixelWriter, PixelWriterCopyable, Rectangle,
         frame_buffer::{self, FrameBuffer},
     },
+    serial_println,
 };
 
 type PixelWriterRef<'a> = &'a mut dyn PixelWriter;
 type PixelWriterCopyableRef<'a> = &'a mut dyn PixelWriterCopyable;
 
 #[derive(Debug)]
-pub struct Window {
+pub struct Canvas {
     width: u64,
     height: u64,
-    data: Vec<Vec<RgbColor>>,
+    // data: Vec<Vec<RgbColor>>,
     consider_transparent: bool,
     shadow_buffer: FrameBuffer,
 }
 
-impl Window {
+impl Canvas {
     pub const fn new() -> Self {
         Self {
             width: 0,
             height: 0,
-            data: Vec::new(),
+            // data: Vec::new(),
             consider_transparent: false,
             shadow_buffer: FrameBuffer::new_empty(),
         }
     }
 
     pub fn init(&mut self, width: u64, height: u64, consider_transparent: bool) {
-        let mut data = Vec::new();
+        // let mut data = Vec::new();
 
-        let mut row = Vec::new();
-        row.resize(width as usize, RgbColor::new());
-        let row_len = row.len();
-        data.resize(height as usize, row);
+        // let mut row = Vec::new();
+        // row.resize(width as usize, RgbColor::new());
+        // let row_len = row.len();
+        // data.resize(height as usize, row);
 
         let mut shadow_buffer = FrameBuffer::new_empty();
         let graphic_info = GraphicInfo {
@@ -58,44 +59,34 @@ impl Window {
         };
         shadow_buffer.init(&graphic_info);
 
-        assert_eq!(data.len(), height as usize);
-        assert_eq!(row_len, width as usize);
-
         *self = Self {
             width,
             height,
-            data,
             consider_transparent,
             shadow_buffer,
         };
     }
 
-    pub fn draw_to<'a>(&self, writer: &Arc<Mutex<FrameBuffer>>, position: U64Vec2) {
+    pub fn draw_to<'a>(&self, frame_buffer: &Arc<Mutex<FrameBuffer>>, pos: U64Vec2) {
         if self.consider_transparent {
             for y in 0..self.height {
-                let mut writer = writer.lock();
+                let mut writer = frame_buffer.lock();
                 for x in 0..self.width {
-                    let c: RgbColor = self.data[y as usize][x as usize];
-                    if !c.is_transparent {
+                    let current_pos = pos + u64vec2(x, y);
+                    let c = self.shadow_buffer.at(current_pos);
+
+                    if !c.is_transparent() {
                         writer
-                            .write_pixel(
-                                U64Vec2 {
-                                    x: position.x + x,
-                                    y: position.y + y,
-                                },
-                                c,
-                            )
+                            .write_pixel(current_pos, c)
                             .expect("Failed to write a pixel to the frame buffer.");
+                    } else {
+                        serial_println!("world");
                     }
                 }
             }
         } else {
-            unsafe { writer.lock().copy(position, &self.shadow_buffer) };
+            unsafe { frame_buffer.lock().copy(pos, &self.shadow_buffer) };
         }
-    }
-
-    pub fn set_transparent_color(&mut self, value: bool) {
-        self.consider_transparent = value;
     }
 
     pub fn move_rect(&mut self, dst_pos: U64Vec2, src_rect: Rectangle) {
@@ -105,7 +96,7 @@ impl Window {
     }
 }
 
-impl PixelWriter for Window {
+impl PixelWriter for Canvas {
     fn width(&self) -> u64 {
         self.width
     }
@@ -115,13 +106,17 @@ impl PixelWriter for Window {
     }
 
     fn write_pixel(&mut self, position: U64Vec2, color: RgbColor) -> Result<()> {
-        *self
-            .data
-            .get_mut(position.y as usize)
-            .unwrap()
-            .get_mut(position.x as usize)
-            .unwrap() = color;
         self.shadow_buffer.write_pixel(position, color)?;
         Ok(())
     }
+}
+
+pub fn create_arc_mutex_canvas(
+    width: u64,
+    height: u64,
+    consider_transparent: bool,
+) -> Arc<Mutex<Canvas>> {
+    let mut canvas = Canvas::new();
+    canvas.init(width, height, consider_transparent);
+    Arc::new(Mutex::new(canvas))
 }

@@ -9,35 +9,36 @@ use spin::{Lazy, Mutex};
 use crate::{
     graphic::{
         PixelWriter, PixelWriterCopyable,
+        canvas::Canvas,
         frame_buffer::{self, FrameBuffer},
     },
-    window::Window,
+    serial_println,
 };
 
 pub struct Layer {
-    id: usize,
+    pub(crate) id: usize,
     origin_position: U64Vec2,
     max_position: U64Vec2,
-    window: Arc<Mutex<Window>>,
+    canvas: Arc<Mutex<Canvas>>,
 }
 
 impl Layer {
-    pub fn new(window: Arc<Mutex<Window>>) -> Self {
+    pub fn new(canvas: Arc<Mutex<Canvas>>) -> Self {
         let max_position = {
-            let locked = window.lock();
+            let locked = canvas.lock();
 
             let frame_buffer_width = frame_buffer::FRAME_BUFFER_WIDTH.wait().clone() as u64;
             let frame_buffer_height = frame_buffer::FRAME_BUFFER_HEIGHT.wait().clone() as u64;
-            let window_width = locked.width();
-            let window_height = locked.height();
+            let canvas_width = locked.width();
+            let canvas_height = locked.height();
 
             debug!(
-                "frame_buffer_width: {}, window_width: {}",
-                frame_buffer_width, window_width
+                "frame_buffer_width: {}, canvas_width: {}",
+                frame_buffer_width, canvas_width
             );
             debug!(
-                "frame_buffer_height: {}, window_height: {}",
-                frame_buffer_height, window_height
+                "frame_buffer_height: {}, canvas_height: {}",
+                frame_buffer_height, canvas_height
             );
 
             let max_x = *frame_buffer::FRAME_BUFFER_WIDTH.wait() as u64 - locked.width();
@@ -49,7 +50,7 @@ impl Layer {
             id: 0,
             origin_position: U64Vec2::new(0, 0),
             max_position,
-            window,
+            canvas,
         }
     }
 
@@ -62,10 +63,11 @@ impl Layer {
             .origin_position
             .saturating_add_signed(origin_position_offset)
             .min(self.max_position);
+        debug!("({}, {})", self.origin_position.x, self.origin_position.y);
     }
 
     fn draw_to<'a>(&mut self, writer: &Arc<Mutex<FrameBuffer>>) {
-        self.window.lock().draw_to(writer, self.origin_position)
+        self.canvas.lock().draw_to(writer, self.origin_position)
     }
 }
 
@@ -113,7 +115,7 @@ impl LayerManager {
         self.layers.iter_mut().find(|(_, layer)| layer.id == id)
     }
 
-    fn move_absolute(&mut self, id: usize, position: U64Vec2) {
+    pub fn move_absolute(&mut self, id: usize, position: U64Vec2) {
         self.find_layer_mut(id)
             .expect(&format!("No such a layer with id {}", id))
             .1
@@ -131,7 +133,10 @@ impl LayerManager {
         let writer = unsafe { &*self.writer.as_ptr() };
 
         for layer in self.layer_stack.iter() {
-            self.layers[*layer].draw_to(writer);
+            let l = &mut self.layers[*layer];
+            serial_println!("layer_id: {}", l.id);
+            l.draw_to(writer);
+            // self.layers[*layer].draw_to(writer);
         }
     }
 

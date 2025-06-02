@@ -18,7 +18,6 @@ mod frame_manager;
 mod gdt;
 mod graphic;
 mod interrupts;
-mod layer;
 mod logger;
 mod memory_map;
 mod message;
@@ -30,24 +29,26 @@ mod serial;
 mod timer;
 mod types;
 mod util;
-mod window;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use alloc::sync::Arc;
+use common::graphic::rgb;
 use common::{boot::BootInfo, graphic::RgbColor};
 use device::ps2::{self, controller::ControllerError, mouse::MouseError};
 use glam::u64vec2;
+use graphic::layer::Layer;
 use graphic::{
     PixelWriter,
     console::{self},
     frame_buffer::{self},
 };
-use layer::Layer;
 use log::{debug, error, info};
-use spin::Mutex;
-use window::Window;
+
+use graphic::canvas::create_arc_mutex_canvas;
+
+use crate::graphic::window::draw_window;
+use crate::graphic::{create_canvas_and_layer, layer};
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -92,68 +93,71 @@ struct LayerIDs {
     mouse_layer_id: usize,
     console_layer_id: usize,
     bg_layer_id: usize,
+    main_window_layer_id: usize,
 }
 
 fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     frame_buffer::init(&boot_info.graphic_info).expect("Failed to initialize the frame buffer.");
 
-    let create_window = |width: u64, height: u64, consider_transparent: bool| {
-        let mut window = Window::new();
-        window.init(width, height, consider_transparent);
-        Arc::new(Mutex::new(window))
-    };
-
     // background
-    let bg_window = create_window(
+    let (bg_canvas, bg_layer) = create_canvas_and_layer(
         *frame_buffer::FRAME_BUFFER_WIDTH.wait() as u64,
         *frame_buffer::FRAME_BUFFER_HEIGHT.wait() as u64,
         false,
     );
-    bg_window
+    bg_canvas
         .lock()
         .fill_rect(
             u64vec2(0, 0),
             frame_buffer::FRAME_BUFFER_WIDTH.wait().clone() as u64,
             frame_buffer::FRAME_BUFFER_HEIGHT.wait().clone() as u64,
-            RgbColor::from(0xcc241d00),
+            rgb(0xcc241d),
         )
         .unwrap();
-    let bg_layer = Layer::new(bg_window);
 
     // console
-    let console_window = create_window(console::WIDTH as u64, console::HEIGHT as u64, false);
-    let console_layer = Layer::new(console_window.clone());
-    console::init(
-        console_window,
-        RgbColor::from(0x3c383600),
-        RgbColor::from(0xebdbb200),
-    )
-    .expect("Failed to initialize the console.");
+    let (console_canvas, console_layer) =
+        create_canvas_and_layer(console::WIDTH as u64, console::HEIGHT as u64, false);
+    console::init(console_canvas, rgb(0x3c3836), rgb(0xebdbb2))
+        .expect("Failed to initialize the console.");
 
     // mouse
-    let mouse_window = create_window(
+    let (mouse_canvas, mouse_layer) = create_canvas_and_layer(
         mouse::MOUSE_CURSOR_WIDTH as u64,
         mouse::MOUSE_CURSOR_HEIGHT as u64,
         true,
     );
-    mouse::draw_mouse_cursor(mouse_window.clone(), u64vec2(0, 0));
-    let mouse_layer = Layer::new(mouse_window);
+    mouse::draw_mouse_cursor(mouse_canvas, u64vec2(0, 0));
+
+    // main canvas
+    let (main_window_canvas, main_window_canvas_layer) = create_canvas_and_layer(160, 68, false);
+    draw_window(main_window_canvas.clone());
 
     let mut layer_manager = layer::LAYER_MANAGER.lock();
     layer_manager.init(frame_buffer::FRAME_BUFFER.wait().clone());
+
     let bg_layer_id = layer_manager.add_layer(bg_layer);
     let console_layer_id = layer_manager.add_layer(console_layer);
+    let main_window_layer_id = layer_manager.add_layer(main_window_canvas_layer);
     let mouse_layer_id = layer_manager.add_layer(mouse_layer);
 
+    layer_manager.move_absolute(main_window_layer_id, u64vec2(300, 100));
+
+    debug!("bg_layer: {}", bg_layer_id);
+    debug!("console_layer: {}", console_layer_id);
+    debug!("main_window_layer: {}", main_window_layer_id);
+    debug!("mouse_layer: {}", mouse_layer_id);
     layer_manager.up_or_down(bg_layer_id, 0);
     layer_manager.up_or_down(console_layer_id, 1);
-    layer_manager.up_or_down(mouse_layer_id, 2);
+    layer_manager.up_or_down(main_window_layer_id, 2);
+    layer_manager.up_or_down(mouse_layer_id, 3);
     layer_manager.draw();
 
     LayerIDs {
         mouse_layer_id,
         console_layer_id,
         bg_layer_id,
+        main_window_layer_id,
     }
 }
 
@@ -215,7 +219,7 @@ fn main(boot_info: &BootInfo) -> ! {
                                 let elapsed = timer::local_apic_timer_elapsed();
                                 timer::stop_local_apic_timer();
 
-                                debug!("elapsed: {}", elapsed);
+                                // debug!("elapsed: {}", elapsed);
                             }
                             Err(err) => match err {
                                 MouseError::ControllerError(ControllerError::Timeout) => {

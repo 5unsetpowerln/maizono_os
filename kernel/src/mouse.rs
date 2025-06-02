@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use common::graphic::RgbColor;
+use common::graphic::{RgbColor, rgb};
 use glam::{I64Vec2, U64Vec2, u64vec2};
 use spin::{Lazy, Mutex};
 
@@ -15,7 +15,7 @@ enum MousePixel {
     Inner(RgbColor),
 }
 
-pub const MOUSE_TRANSPARENT_COLOR: RgbColor = RgbColor::from(0);
+pub const MOUSE_TRANSPARENT_COLOR: RgbColor = rgb(0);
 
 static MOUSE_CURSOR_DATA: Lazy<[[MousePixel; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT]> =
     Lazy::new(|| {
@@ -46,14 +46,14 @@ static MOUSE_CURSOR_DATA: Lazy<[[MousePixel; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_H
             [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0],
         ];
 
-        let mut mouse_cursor = [[MousePixel::Transparent(RgbColor::transparent());
+        let mut mouse_cursor = [[MousePixel::Transparent(RgbColor::new().to_transparent());
             MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT];
         for dy in 0..MOUSE_CURSOR_HEIGHT {
             for dx in 0..MOUSE_CURSOR_WIDTH {
                 mouse_cursor[dy][dx] = match MOUSE_CURSOR_SHAPE[dy][dx] {
                     0 => continue,
-                    1 => MousePixel::Border(RgbColor::from(0xffffff00)),
-                    2 => MousePixel::Inner(RgbColor::from(0x00000000)),
+                    1 => MousePixel::Border(rgb(0xffffff)),
+                    2 => MousePixel::Inner(rgb(0x000000)),
                     _ => panic!("unexpected mouse pixel."),
                 };
             }
