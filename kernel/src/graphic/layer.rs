@@ -1,18 +1,16 @@
 use core::mem::MaybeUninit;
 
 use alloc::{format, sync::Arc, vec::Vec};
+use common::graphic::GraphicInfo;
 use glam::{I64Vec2, U64Vec2, u64vec2};
 use log::debug;
 use slotmap::SlotMap;
 use spin::{Lazy, Mutex};
 
-use crate::{
-    graphic::{
-        PixelWriter, PixelWriterCopyable,
-        canvas::Canvas,
-        frame_buffer::{self, FrameBuffer},
-    },
-    serial_println,
+use crate::graphic::{
+    PixelWriter, PixelWriterCopyable,
+    canvas::Canvas,
+    frame_buffer::{self, FRAME_BUFFER_HEIGHT, FRAME_BUFFER_WIDTH, FrameBuffer},
 };
 
 pub struct Layer {
@@ -66,7 +64,7 @@ impl Layer {
         debug!("({}, {})", self.origin_position.x, self.origin_position.y);
     }
 
-    fn draw_to<'a>(&mut self, writer: &Arc<Mutex<FrameBuffer>>) {
+    fn draw_to<'a>(&mut self, writer: &mut FrameBuffer) {
         self.canvas.lock().draw_to(writer, self.origin_position)
     }
 }
@@ -75,7 +73,8 @@ pub struct LayerManager {
     layers: SlotMap<slotmap::DefaultKey, Layer>,
     layer_stack: Vec<slotmap::DefaultKey>,
     latest_id: usize,
-    writer: MaybeUninit<Arc<Mutex<FrameBuffer>>>,
+    frame_buffer: MaybeUninit<Arc<Mutex<FrameBuffer>>>,
+    back_buffer: FrameBuffer,
 }
 
 impl LayerManager {
@@ -84,16 +83,28 @@ impl LayerManager {
             layers: SlotMap::new(),
             layer_stack: Vec::new(),
             latest_id: 0,
-            writer: MaybeUninit::uninit(),
+            frame_buffer: MaybeUninit::uninit(),
+            back_buffer: FrameBuffer::new_empty(),
         }
     }
 
     pub fn init(&mut self, writer: Arc<Mutex<FrameBuffer>>) {
+        let graphic_info = GraphicInfo {
+            width: FRAME_BUFFER_WIDTH.wait().clone() as u64,
+            height: FRAME_BUFFER_HEIGHT.wait().clone() as u64,
+            stride: FRAME_BUFFER_WIDTH.wait().clone(),
+            pixel_format: frame_buffer::PIXEL_FORMAT.wait().clone(),
+            bytes_per_pixel: frame_buffer::BYTES_PER_PIXEL.wait().clone(),
+            frame_buffer_addr: None,
+            frame_buffer_size: 0,
+        };
+        self.back_buffer.init(&graphic_info);
+
         self.set_writer(writer);
     }
 
     pub fn set_writer(&mut self, writer: Arc<Mutex<FrameBuffer>>) {
-        self.writer = MaybeUninit::new(writer);
+        self.frame_buffer = MaybeUninit::new(writer);
     }
 
     pub fn add_layer(&mut self, layer: Layer) -> usize {
@@ -130,14 +141,34 @@ impl LayerManager {
     }
 
     pub fn draw(&mut self) {
-        let writer = unsafe { &*self.writer.as_ptr() };
+        for layer in self.layer_stack.iter() {
+            self.layers[*layer].draw_to(&mut self.back_buffer);
+        }
+
+        let frame_buffer = unsafe { &*self.frame_buffer.as_ptr() };
+        unsafe { frame_buffer.lock().copy(u64vec2(0, 0), &self.back_buffer) };
+    }
+
+    pub fn draw_from(&mut self, id: usize) {
+        let specified_layer = if let Some((layer, _)) = self.find_layer(id) {
+            layer
+        } else {
+            return;
+        };
+
+        let mut found = false;
 
         for layer in self.layer_stack.iter() {
-            let l = &mut self.layers[*layer];
-            serial_println!("layer_id: {}", l.id);
-            l.draw_to(writer);
-            // self.layers[*layer].draw_to(writer);
+            if specified_layer == *layer {
+                found = true;
+            }
+            if found {
+                self.layers[*layer].draw_to(&mut self.back_buffer);
+            }
         }
+
+        let frame_buffer = unsafe { &*self.frame_buffer.as_ptr() };
+        unsafe { frame_buffer.lock().copy(u64vec2(0, 0), &self.back_buffer) };
     }
 
     fn hide(&mut self, id: usize) {

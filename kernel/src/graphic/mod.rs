@@ -97,22 +97,20 @@ pub trait PixelWriter: Debug {
         Ok(())
     }
 
-    fn write_string(&mut self, position: U64Vec2, data: &str, fg: RgbColor) -> Result<()> {
-        for (i, c) in data
+    fn write_string(&mut self, pos: U64Vec2, s: &str, fg: RgbColor) -> Result<()> {
+        for (i, c) in s
             .as_ascii()
-            .expect("non ascii string is given.")
+            .expect("Non ascii character is given.")
             .iter()
             .enumerate()
         {
             self.write_char(
-                U64Vec2 {
-                    x: position.x + (i * font::CHARACTER_WIDTH) as u64 * 2,
-                    y: position.y,
-                },
-                c.clone(),
+                pos + u64vec2(i as u64 * font::CHARACTER_WIDTH as u64, 0),
+                *c,
                 fg,
             )?;
         }
+
         Ok(())
     }
 }

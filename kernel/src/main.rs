@@ -33,11 +33,11 @@ mod util;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
+use alloc::format;
+use common::boot::BootInfo;
 use common::graphic::rgb;
-use common::{boot::BootInfo, graphic::RgbColor};
 use device::ps2::{self, controller::ControllerError, mouse::MouseError};
 use glam::u64vec2;
-use graphic::layer::Layer;
 use graphic::{
     PixelWriter,
     console::{self},
@@ -45,10 +45,8 @@ use graphic::{
 };
 use log::{debug, error, info};
 
-use graphic::canvas::create_arc_mutex_canvas;
-
-use crate::graphic::window::draw_window;
 use crate::graphic::{create_canvas_and_layer, layer};
+use crate::graphic::{layer::LAYER_MANAGER, window::draw_window};
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -93,7 +91,6 @@ struct LayerIDs {
     mouse_layer_id: usize,
     console_layer_id: usize,
     bg_layer_id: usize,
-    main_window_layer_id: usize,
 }
 
 fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
@@ -129,35 +126,25 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     );
     mouse::draw_mouse_cursor(mouse_canvas, u64vec2(0, 0));
 
-    // main canvas
-    let (main_window_canvas, main_window_canvas_layer) = create_canvas_and_layer(160, 68, false);
-    draw_window(main_window_canvas.clone());
-
     let mut layer_manager = layer::LAYER_MANAGER.lock();
     layer_manager.init(frame_buffer::FRAME_BUFFER.wait().clone());
 
     let bg_layer_id = layer_manager.add_layer(bg_layer);
     let console_layer_id = layer_manager.add_layer(console_layer);
-    let main_window_layer_id = layer_manager.add_layer(main_window_canvas_layer);
     let mouse_layer_id = layer_manager.add_layer(mouse_layer);
-
-    layer_manager.move_absolute(main_window_layer_id, u64vec2(300, 100));
 
     debug!("bg_layer: {}", bg_layer_id);
     debug!("console_layer: {}", console_layer_id);
-    debug!("main_window_layer: {}", main_window_layer_id);
     debug!("mouse_layer: {}", mouse_layer_id);
     layer_manager.up_or_down(bg_layer_id, 0);
     layer_manager.up_or_down(console_layer_id, 1);
-    layer_manager.up_or_down(main_window_layer_id, 2);
-    layer_manager.up_or_down(mouse_layer_id, 3);
+    layer_manager.up_or_down(mouse_layer_id, 2);
     layer_manager.draw();
 
     LayerIDs {
         mouse_layer_id,
         console_layer_id,
         bg_layer_id,
-        main_window_layer_id,
     }
 }
 
@@ -193,9 +180,33 @@ fn main(boot_info: &BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
-    info!("It didn't crash:)");
-    layer::LAYER_MANAGER.lock().draw();
+    // main canvas
+    let (main_window_canvas, main_window_canvas_layer) = create_canvas_and_layer(160, 68, false);
+    draw_window(main_window_canvas.clone(), "Hello Window");
+    let main_window_layer_id = LAYER_MANAGER.lock().add_layer(main_window_canvas_layer);
+    LAYER_MANAGER
+        .lock()
+        .move_absolute(main_window_layer_id, u64vec2(300, 100));
+    LAYER_MANAGER.lock().up_or_down(main_window_layer_id, 2);
+
+    let mut loop_count: u64 = 0;
+
+    LAYER_MANAGER.lock().draw();
+
     loop {
+        {
+            let loop_count_str = format!("{}", loop_count);
+            let mut locked_main_window_canvas = main_window_canvas.lock();
+            locked_main_window_canvas
+                .fill_rect(u64vec2(24, 28), 8 * 10, 16, rgb(0xc6c6c6))
+                .unwrap();
+            locked_main_window_canvas
+                .write_string(u64vec2(24, 28), &loop_count_str, rgb(0x000000))
+                .unwrap();
+        }
+
+        loop_count += 1;
+
         if message::count() > 0 {
             x86_64::instructions::interrupts::disable();
             if let Some(message) = message::QUEUE.lock().dequeue() {
@@ -219,7 +230,7 @@ fn main(boot_info: &BootInfo) -> ! {
                                 let elapsed = timer::local_apic_timer_elapsed();
                                 timer::stop_local_apic_timer();
 
-                                // debug!("elapsed: {}", elapsed);
+                                debug!("elapsed: {}", elapsed);
                             }
                             Err(err) => match err {
                                 MouseError::ControllerError(ControllerError::Timeout) => {

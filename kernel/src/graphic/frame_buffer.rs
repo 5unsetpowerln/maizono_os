@@ -1,8 +1,7 @@
-use crate::{error::Result, serial_println, util::u32_from_slice};
+use crate::error::Result;
 use alloc::{sync::Arc, vec::Vec};
-use common::graphic::{GraphicInfo, PixelFormat, RgbColor, rgb};
-use glam::{U64Vec2, U64Vec4, u64vec2};
-use log::{debug, info};
+use common::graphic::{GraphicInfo, PixelFormat, RgbColor};
+use glam::{U64Vec2, u64vec2};
 use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
@@ -56,9 +55,7 @@ impl FrameBuffer {
         let mut buffer = Vec::new();
         let mut graphic_info = graphic_info.clone();
 
-        if graphic_info.frame_buffer_addr.is_some() {
-            buffer.resize(0, 0);
-        } else {
+        if graphic_info.frame_buffer_addr.is_none() {
             buffer.resize(
                 (graphic_info.width * graphic_info.height * graphic_info.bytes_per_pixel) as usize,
                 0,
@@ -74,7 +71,6 @@ impl FrameBuffer {
                 PixelFormat::Bgr => write_pixel_bgr,
                 PixelFormat::Rgb => write_pixel_rgb,
             },
-            // graphic_info: graphic_info.clone(),
             graphic_info,
         };
     }
@@ -97,7 +93,7 @@ impl FrameBuffer {
 
         for _ in 0..src_height {
             unsafe {
-                dst_ptr.copy_from(src_ptr, bytes_per_src_width as usize);
+                dst_ptr.copy_from_nonoverlapping(src_ptr, bytes_per_src_width as usize);
                 dst_ptr = dst_ptr.add(bytes_per_dst_width as usize);
                 src_ptr = src_ptr.add(bytes_per_src_width as usize);
             }
@@ -119,7 +115,10 @@ impl FrameBuffer {
 
             for _ in 0..src_rect.height {
                 unsafe {
-                    dst_ptr.copy_from(src_ptr, (src_rect.width * bytes_per_pixel) as usize);
+                    dst_ptr.copy_from_nonoverlapping(
+                        src_ptr,
+                        (src_rect.width * bytes_per_pixel) as usize,
+                    );
                     dst_ptr = dst_ptr.add(bytes_per_scan_line as usize);
                     src_ptr = src_ptr.add(bytes_per_scan_line as usize);
                 };

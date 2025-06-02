@@ -1,29 +1,20 @@
-use core::ptr::copy_nonoverlapping;
-
-use alloc::{format, sync::Arc, vec::Vec};
-use anyhow::Context;
+use alloc::sync::Arc;
 use common::graphic::{GraphicInfo, RgbColor};
-use glam::{U64Vec2, U64Vec4, u64vec2};
-use log::debug;
+use glam::{U64Vec2, u64vec2};
 use spin::Mutex;
 
 use crate::{
     error::Result,
     graphic::{
-        PixelWriter, PixelWriterCopyable, Rectangle,
+        PixelWriter, Rectangle,
         frame_buffer::{self, FrameBuffer},
     },
-    serial_println,
 };
-
-type PixelWriterRef<'a> = &'a mut dyn PixelWriter;
-type PixelWriterCopyableRef<'a> = &'a mut dyn PixelWriterCopyable;
 
 #[derive(Debug)]
 pub struct Canvas {
     width: u64,
     height: u64,
-    // data: Vec<Vec<RgbColor>>,
     consider_transparent: bool,
     shadow_buffer: FrameBuffer,
 }
@@ -33,20 +24,12 @@ impl Canvas {
         Self {
             width: 0,
             height: 0,
-            // data: Vec::new(),
             consider_transparent: false,
             shadow_buffer: FrameBuffer::new_empty(),
         }
     }
 
     pub fn init(&mut self, width: u64, height: u64, consider_transparent: bool) {
-        // let mut data = Vec::new();
-
-        // let mut row = Vec::new();
-        // row.resize(width as usize, RgbColor::new());
-        // let row_len = row.len();
-        // data.resize(height as usize, row);
-
         let mut shadow_buffer = FrameBuffer::new_empty();
         let graphic_info = GraphicInfo {
             width,
@@ -67,15 +50,14 @@ impl Canvas {
         };
     }
 
-    pub fn draw_to<'a>(&self, frame_buffer: &Arc<Mutex<FrameBuffer>>, pos: U64Vec2) {
+    pub fn draw_to<'a>(&self, frame_buffer: &mut FrameBuffer, pos: U64Vec2) {
         if self.consider_transparent {
             for y in 0..self.height {
-                let mut writer = frame_buffer.lock();
                 for x in 0..self.width {
                     let c = self.shadow_buffer.at(u64vec2(x, y));
 
                     if !c.is_transparent() {
-                        writer
+                        frame_buffer
                             .write_pixel(pos + u64vec2(x, y), c)
                             .expect("Failed to write a pixel to the frame buffer.");
                     } else {
@@ -83,7 +65,7 @@ impl Canvas {
                 }
             }
         } else {
-            unsafe { frame_buffer.lock().copy(pos, &self.shadow_buffer) };
+            unsafe { frame_buffer.copy(pos, &self.shadow_buffer) };
         }
     }
 
@@ -107,14 +89,4 @@ impl PixelWriter for Canvas {
         self.shadow_buffer.write_pixel(position, color)?;
         Ok(())
     }
-}
-
-pub fn create_arc_mutex_canvas(
-    width: u64,
-    height: u64,
-    consider_transparent: bool,
-) -> Arc<Mutex<Canvas>> {
-    let mut canvas = Canvas::new();
-    canvas.init(width, height, consider_transparent);
-    Arc::new(Mutex::new(canvas))
 }
