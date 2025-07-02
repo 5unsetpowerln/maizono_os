@@ -45,8 +45,8 @@ use graphic::{
 };
 use log::{debug, error, info};
 
+use crate::graphic::layer::LAYER_MANAGER;
 use crate::graphic::{create_canvas_and_layer, layer};
-use crate::graphic::{layer::LAYER_MANAGER, window::draw_window};
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -108,14 +108,14 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
             u64vec2(0, 0),
             frame_buffer::FRAME_BUFFER_WIDTH.wait().clone() as u64,
             frame_buffer::FRAME_BUFFER_HEIGHT.wait().clone() as u64,
-            rgb(0xcc241d),
+            rgb(0x42484e),
         )
         .unwrap();
 
     // console
     let (console_canvas, console_layer) =
         create_canvas_and_layer(console::WIDTH as u64, console::HEIGHT as u64, false);
-    console::init(console_canvas, rgb(0x3c3836), rgb(0xebdbb2))
+    console::init(console_canvas, rgb(0x1a2026), rgb(0xbebebe))
         .expect("Failed to initialize the console.");
 
     // mouse
@@ -170,7 +170,7 @@ fn main(boot_info: &BootInfo) -> ! {
 
     unsafe { acpi::init(rsdp_addr) };
 
-    ps2::init(true, true);
+    ps2::init(true, false);
     x86_64::instructions::interrupts::disable();
     interrupts::init();
     x86_64::instructions::interrupts::enable();
@@ -180,31 +180,11 @@ fn main(boot_info: &BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
-    // main canvas
-    let (main_window_canvas, main_window_canvas_layer) = create_canvas_and_layer(160, 68, false);
-    draw_window(main_window_canvas.clone(), "Hello Window");
-    let main_window_layer_id = LAYER_MANAGER.lock().add_layer(main_window_canvas_layer);
-    LAYER_MANAGER
-        .lock()
-        .move_absolute(main_window_layer_id, u64vec2(300, 100));
-    LAYER_MANAGER.lock().up_or_down(main_window_layer_id, 2);
-
     let mut loop_count: u64 = 0;
 
     LAYER_MANAGER.lock().draw();
 
     loop {
-        {
-            let loop_count_str = format!("{}", loop_count);
-            let mut locked_main_window_canvas = main_window_canvas.lock();
-            locked_main_window_canvas
-                .fill_rect(u64vec2(24, 28), 8 * 10, 16, rgb(0xc6c6c6))
-                .unwrap();
-            locked_main_window_canvas
-                .write_string(u64vec2(24, 28), &loop_count_str, rgb(0x000000))
-                .unwrap();
-        }
-
         loop_count += 1;
 
         if message::count() > 0 {
