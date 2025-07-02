@@ -44,6 +44,7 @@ use graphic::{
     frame_buffer::{self},
 };
 use log::{debug, error, info};
+use timer::TIMER_MANAGER;
 
 use crate::graphic::layer::LAYER_MANAGER;
 use crate::graphic::{create_canvas_and_layer, layer};
@@ -180,7 +181,7 @@ fn main(boot_info: &BootInfo) -> ! {
                         debug!("{:?}", data);
                     }
                     message::Message::LocalAPICTimerInterrupt => {
-                        debug!("local apic timer interrupt occured!");
+                        debug!("current tick: {}", TIMER_MANAGER.lock().get_current_tick());
                     }
                     message::Message::PS2MouseInterrupt => {
                         error!("PS2 mouse is disabled but the interrupt occured.");
