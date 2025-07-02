@@ -3,7 +3,8 @@ pub mod apic;
 use crate::message::Message;
 use crate::{acpi, device::ps2};
 use apic::{IoApic, LocalApic, write_msr};
-use log::info;
+use common::error;
+use log::{error, info};
 use spin::{Lazy, Once};
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
@@ -39,7 +40,7 @@ pub enum InterruptVector {
 }
 
 impl InterruptVector {
-    const fn as_u8(self) -> u8 {
+    pub const fn as_u8(self) -> u8 {
         self as u8
     }
 }
@@ -52,7 +53,7 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt[InterruptVector::ExternalIrqTimer.as_u8()].set_handler_fn(timer_interrupt_handler);
     idt[InterruptVector::ExternalIrqKeyboard.as_u8()]
         .set_handler_fn(ps2::keyboard::interrupt_handler);
-    idt[InterruptVector::ExternalIrqMouse.as_u8()].set_handler_fn(ps2::mouse::interrupt_handler);
+    idt[InterruptVector::ExternalIrqMouse.as_u8()].set_handler_fn(mouse_interrupt_handler);
 
     idt
 });
@@ -188,7 +189,16 @@ extern "x86-interrupt" fn double_fault_handler(
 }
 
 extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    // timer::local_apic_timer_on_interrupt();
     message::enqueue(Message::LocalAPICTimerInterrupt);
+    notify_end_of_interrupt();
+}
+
+extern "x86-interrupt" fn external_irq_timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    error!("An external irq timer interrupt was happened.");
+    notify_end_of_interrupt();
+}
+
+extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    error!("A mouse interrupt was happned.");
     notify_end_of_interrupt();
 }

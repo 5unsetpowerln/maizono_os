@@ -88,7 +88,6 @@ pub extern "sysv64" fn _start(boot_info: &BootInfo) -> ! {
 }
 
 struct LayerIDs {
-    mouse_layer_id: usize,
     console_layer_id: usize,
     bg_layer_id: usize,
 }
@@ -118,31 +117,19 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     console::init(console_canvas, rgb(0x1a2026), rgb(0xbebebe))
         .expect("Failed to initialize the console.");
 
-    // mouse
-    let (mouse_canvas, mouse_layer) = create_canvas_and_layer(
-        mouse::MOUSE_CURSOR_WIDTH as u64,
-        mouse::MOUSE_CURSOR_HEIGHT as u64,
-        true,
-    );
-    mouse::draw_mouse_cursor(mouse_canvas, u64vec2(0, 0));
-
     let mut layer_manager = layer::LAYER_MANAGER.lock();
     layer_manager.init(frame_buffer::FRAME_BUFFER.wait().clone());
 
     let bg_layer_id = layer_manager.add_layer(bg_layer);
     let console_layer_id = layer_manager.add_layer(console_layer);
-    let mouse_layer_id = layer_manager.add_layer(mouse_layer);
 
     debug!("bg_layer: {}", bg_layer_id);
     debug!("console_layer: {}", console_layer_id);
-    debug!("mouse_layer: {}", mouse_layer_id);
     layer_manager.up_or_down(bg_layer_id, 0);
     layer_manager.up_or_down(console_layer_id, 1);
-    layer_manager.up_or_down(mouse_layer_id, 2);
     layer_manager.draw();
 
     LayerIDs {
-        mouse_layer_id,
         console_layer_id,
         bg_layer_id,
     }
@@ -155,7 +142,7 @@ fn main(boot_info: &BootInfo) -> ! {
     frame_manager::init(&boot_info.memory_map);
     allocator::init();
 
-    let layer_ids = init_graphic(boot_info);
+    let _layer_ids = init_graphic(boot_info);
 
     pci::devices()
         .unwrap()
@@ -180,13 +167,9 @@ fn main(boot_info: &BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
-    let mut loop_count: u64 = 0;
-
     LAYER_MANAGER.lock().draw();
 
     loop {
-        loop_count += 1;
-
         if message::count() > 0 {
             x86_64::instructions::interrupts::disable();
             if let Some(message) = message::QUEUE.lock().dequeue() {
@@ -196,35 +179,11 @@ fn main(boot_info: &BootInfo) -> ! {
                         let data = unsafe { ps2::keyboard().lock().read_data() };
                         debug!("{:?}", data);
                     }
-                    message::Message::PS2MouseInterrupt => {
-                        let event = unsafe { ps2::mouse().lock().receive_events() };
-
-                        match event {
-                            Ok(mouse::MouseEvent::Move { displacement }) => {
-                                let mut layer_manager = layer::LAYER_MANAGER.lock();
-                                layer_manager.move_relative(layer_ids.mouse_layer_id, displacement);
-
-                                timer::start_local_apic_timer();
-
-                                layer_manager.draw();
-                                let elapsed = timer::local_apic_timer_elapsed();
-                                timer::stop_local_apic_timer();
-
-                                debug!("elapsed: {}", elapsed);
-                            }
-                            Err(err) => match err {
-                                MouseError::ControllerError(ControllerError::Timeout) => {
-                                    error!("mouse timeout")
-                                }
-                                _ => {
-                                    panic!("{:?}", err);
-                                }
-                            },
-                            _ => {}
-                        }
-                    }
                     message::Message::LocalAPICTimerInterrupt => {
                         debug!("local apic timer interrupt occured!");
+                    }
+                    message::Message::PS2MouseInterrupt => {
+                        error!("PS2 mouse is disabled but the interrupt occured.");
                     }
                 }
             }
