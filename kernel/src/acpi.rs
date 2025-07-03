@@ -163,12 +163,12 @@ impl ApicInfo {
 static FADT: Once<Fadt> = Once::new();
 static APIC_INFO: Once<ApicInfo> = Once::new();
 
-pub unsafe fn init(rsdp_addr: PhysPtr) {
-    let rsdp = unsafe { rsdp_addr.ref_::<Rsdp>() };
-    if !rsdp.is_valid() {
-        error!("RSDP isn't valid.");
-        panic!();
-    }
+pub unsafe fn init(rsdp: &'static Rsdp) {
+    // let rsdp = unsafe { rsdp_addr.ref_::<Rsdp>() };
+    // if !rsdp.is_valid() {
+    //     error!("RSDP isn't valid.");
+    //     panic!();
+    // }
 
     let xsdt = unsafe { &*(rsdp.xsdt_address() as *const Xsdt) };
     if !xsdt.is_valid() {

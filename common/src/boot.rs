@@ -1,3 +1,4 @@
+use acpi::rsdp::Rsdp;
 use uefi::mem::memory_map::MemoryMapOwned;
 
 use crate::{address::PhysPtr, graphic::GraphicInfo};
@@ -5,19 +6,15 @@ use crate::{address::PhysPtr, graphic::GraphicInfo};
 pub struct BootInfo {
     pub graphic_info: GraphicInfo,
     pub memory_map: MemoryMapOwned,
-    pub rsdp_addr: Option<PhysPtr>,
+    pub rsdp: &'static Rsdp,
 }
 
 impl BootInfo {
-    pub fn new(
-        graphic_info: GraphicInfo,
-        memory_map: MemoryMapOwned,
-        rsdp_addr: Option<PhysPtr>,
-    ) -> Self {
+    pub fn new(graphic_info: GraphicInfo, memory_map: MemoryMapOwned, rsdp: &'static Rsdp) -> Self {
         Self {
             graphic_info,
             memory_map,
-            rsdp_addr,
+            rsdp,
         }
     }
 }

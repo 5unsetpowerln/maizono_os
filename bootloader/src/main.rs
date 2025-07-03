@@ -6,6 +6,7 @@ mod kernel;
 use core::arch::asm;
 
 extern crate alloc;
+use acpi::rsdp::Rsdp;
 use anyhow::Error;
 use anyhow::Result;
 use common::address::PhysPtr;
@@ -71,13 +72,12 @@ fn main_inner() -> Status {
     debug!("main_inner: 0x{:X}", main_inner as *const fn() as u64);
 
     info!("finding rsdp addr.");
-    let rsdp_addr = find_rsdp();
-    info!("rsdp_addr: {:?}", rsdp_addr);
+    let rsdp = find_rsdp();
 
     info!("exiting boot services.");
     let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA) };
 
-    let boot_info = BootInfo::new(graphic_info, memory_map, rsdp_addr);
+    let boot_info = BootInfo::new(graphic_info, memory_map, rsdp);
     kernel.run(&boot_info);
 
     loop {
@@ -87,11 +87,21 @@ fn main_inner() -> Status {
     }
 }
 
-fn find_rsdp() -> Option<PhysPtr> {
-    system::with_config_table(|table| {
+fn find_rsdp() -> &'static Rsdp {
+    if let Some(rsdp_addr) = system::with_config_table(|table| {
         let acpi_entry = table.iter().find(|e| e.guid == ACPI2_GUID);
-        acpi_entry.map(|e| PhysPtr::from_ptr(e.address))
-    })
+        acpi_entry.map(|e| e.address as u64)
+    }) {
+        let rsdp = unsafe { &*(rsdp_addr as *const Rsdp) };
+        if let Err(e) = rsdp.validate() {
+            error!("Failed to validate rsdp: {:?}", e);
+        }
+
+        return rsdp;
+    } else {
+        error!("rsdp was not found");
+        panic!("")
+    }
 }
 
 fn open_root_dir(image: Handle) -> Directory {

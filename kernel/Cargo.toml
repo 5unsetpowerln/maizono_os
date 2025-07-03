@@ -25,3 +25,4 @@ glam = { version = "0.30.3", default-features = false, features = [
 ] }
 anyhow = { version = "1.0.98", default-features = false }
 log = { version = "0.4.27", default-features = false }
+priority-queue = { version = "2.5.0", default-features = false}

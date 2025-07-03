@@ -1,11 +1,12 @@
 use spin::Mutex;
 
-use crate::types::Queue;
+use crate::{timer::Timer, types::Queue};
 
 pub enum Message {
     PS2MouseInterrupt,
     PS2KeyboardInterrupt,
     LocalAPICTimerInterrupt,
+    TimerTimeout(Timer),
 }
 
 pub static QUEUE: Mutex<Queue<Message>> = Mutex::new(Queue::new());

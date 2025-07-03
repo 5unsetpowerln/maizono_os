@@ -44,7 +44,7 @@ use graphic::{
     frame_buffer::{self},
 };
 use log::{debug, error, info};
-use timer::TIMER_MANAGER;
+use timer::{TIMER_MANAGER, Timer};
 
 use crate::graphic::layer::LAYER_MANAGER;
 use crate::graphic::{create_canvas_and_layer, layer};
@@ -150,13 +150,13 @@ fn main(boot_info: &BootInfo) -> ! {
         .init()
         .unwrap_or_else(|err| error!("{:#?}", err));
 
-    let rsdp_addr = boot_info.rsdp_addr.unwrap_or_else(|| {
-        error!("RSDP adderss wan't found. The kernel will panic.");
-        panic!();
-    });
-    info!("rsdp_addr: 0x{:X}", rsdp_addr.get());
+    // let rsdp_addr = boot_info.rsdp_addr.unwrap_or_else(|| {
+    //     error!("RSDP adderss wan't found. The kernel will panic.");
+    //     panic!();
+    // });
+    // info!("rsdp_addr: 0x{:X}", rsdp_addr.get());
 
-    unsafe { acpi::init(rsdp_addr) };
+    unsafe { acpi::init(boot_info.rsdp) };
 
     ps2::init(true, false);
     x86_64::instructions::interrupts::disable();
@@ -164,6 +164,8 @@ fn main(boot_info: &BootInfo) -> ! {
     x86_64::instructions::interrupts::enable();
 
     timer::init_local_apic_timer();
+    timer::TIMER_MANAGER.lock().add_timer(Timer::new(200, 2));
+    timer::TIMER_MANAGER.lock().add_timer(Timer::new(600, -1));
 
     #[cfg(test)]
     test_main();
@@ -181,7 +183,15 @@ fn main(boot_info: &BootInfo) -> ! {
                         debug!("{:?}", data);
                     }
                     message::Message::LocalAPICTimerInterrupt => {
-                        debug!("current tick: {}", TIMER_MANAGER.lock().get_current_tick());
+                        // debug!("current tick: {}", TIMER_MANAGER.lock().get_current_tick());
+                    }
+                    message::Message::TimerTimeout(timer) => {
+                        info!("timer timeout: {}, {}", timer.timeout, timer.value);
+                        if timer.value > 0 {
+                            timer::TIMER_MANAGER
+                                .lock()
+                                .add_timer(Timer::new(timer.timeout + 100, timer.value + 1));
+                        }
                     }
                     message::Message::PS2MouseInterrupt => {
                         error!("PS2 mouse is disabled but the interrupt occured.");
