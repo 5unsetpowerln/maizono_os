@@ -1,8 +1,11 @@
+use spin::{Lazy, Mutex};
 use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::{interrupts, message};
 
 use super::controller::{Controller, ControllerError};
+
+// use pc_keyboard::{DecodedKey, HandleControl, ScancodeSet1, layouts};
 
 type Result<T> = core::result::Result<T, KeyboardError>;
 
@@ -138,6 +141,14 @@ impl Keyboard {
         return Ok(unsafe { self.controller.read_data()? });
     }
 }
+
+// static KEYBOARD: Lazy<Mutex<pc_keyboard::Keyboard<layouts::Us104Key, ScancodeSet1>>> = Lazy::new(|| {
+//     Mutex::new(pc_keyboard::Keyboard::new(ScancodeSet1::new(), layouts::Us104Key, HandleControl::Ignore))
+// });
+
+// pub fn read_key_event() -> Option<DecodedKey> {
+//     let mut 
+// }
 
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     message::enqueue(message::Message::PS2KeyboardInterrupt);

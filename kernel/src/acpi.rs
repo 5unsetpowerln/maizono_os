@@ -1,5 +1,6 @@
 use core::{
     marker::PhantomData,
+    mem::MaybeUninit,
     pin::{Pin, pin},
     ptr::read_unaligned,
 };
@@ -14,6 +15,7 @@ use acpi::{
 use common::address::PhysPtr;
 use log::{debug, error, info};
 use spin::{Mutex, Once};
+use x86_64::instructions::port::{Port, PortReadOnly};
 
 trait Validate {
     fn is_valid(&self) -> bool;
@@ -160,7 +162,8 @@ impl ApicInfo {
     }
 }
 
-static FADT: Once<Fadt> = Once::new();
+// static FADT: Once<Fadt> = Once::new();
+static FADT: Once<Mutex<Fadt>> = Once::new();
 static APIC_INFO: Once<ApicInfo> = Once::new();
 
 pub unsafe fn init(rsdp: &'static Rsdp) {
@@ -205,16 +208,47 @@ pub unsafe fn init(rsdp: &'static Rsdp) {
     let madt = unsafe { Pin::new_unchecked(&*madt_ptr) };
 
     info!("FADT is found: 0x{:X}", fadt_ptr as u64);
-    FADT.call_once(|| unsafe { *fadt_ptr });
+    FADT.call_once(|| unsafe { Mutex::new(*fadt_ptr) });
 
     info!("MADT is found: 0x{:X}", madt_ptr as u64);
     APIC_INFO.call_once(|| ApicInfo::from_madt(madt));
 }
 
-pub fn get_fadt() -> &'static Fadt {
-    FADT.get()
-        .expect("acpi::get_fadt is called before calling acpi::init.")
+const PM_TIMER_FREQ: u32 = 3579545;
+
+pub fn wait_milli_secs(msec: u32) {
+    let fadt = FADT.wait().lock();
+    let fadt_flags = fadt.flags;
+    let is_pm_timer_32_bit = fadt_flags.pm_timer_is_32_bit();
+
+    let io_addr = fadt
+        .pm_timer_block()
+        .expect("Failed to get ACPI PM timer IO port address.")
+        .expect("ACPI PM timer IO port is empty.")
+        .address as u16;
+
+    let mut io = PortReadOnly::<u32>::new(io_addr);
+    let start = unsafe { io.read() };
+    let mut end = start + PM_TIMER_FREQ * msec / 1000;
+
+    if !is_pm_timer_32_bit {
+        end &= 0x00ffffff;
+    }
+
+    if end < start {
+        // オーバーフローしてたらカウントが0になるまで (すなわちstart以上の間) は待機する
+        while unsafe { io.read() } >= start {}
+    }
+    while unsafe { io.read() } < end {}
 }
+
+// pub fn get_fadt() -> MutexGuard<'_, Fadt> {
+//     let a = FADT.wait().lock();
+//     // FADT.lock();
+//     // let fadt = &*(FADT.lock().as_ptr());
+//     // FADT.get()
+//     //     .expect("acpi::get_fadt is called before calling acpi::init.")
+// }
 
 pub fn get_apic_info() -> &'static ApicInfo {
     APIC_INFO

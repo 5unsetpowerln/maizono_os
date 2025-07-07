@@ -2,7 +2,8 @@ use controller::Controller;
 use keyboard::Keyboard;
 use log::{debug, info};
 use mouse::Mouse;
-use spin::{Mutex, Once};
+use pc_keyboard::{DecodedKey, HandleControl, ScancodeSet1, layouts};
+use spin::{Lazy, Mutex, Once};
 use static_assertions::const_assert;
 
 pub mod controller;
@@ -12,7 +13,15 @@ pub mod mouse;
 const_assert!(controller::LOOP_TIMEOUT > mouse::EVENT_BUFFER_LENGTH);
 
 static MOUSE: Once<Mutex<Mouse>> = Once::new();
-static KEYBOARD: Once<Mutex<Keyboard>> = Once::new();
+static KEYBOARD_CONTROLLER: Once<Mutex<Keyboard>> = Once::new();
+static KEYBOARD: Lazy<Mutex<pc_keyboard::Keyboard<layouts::Us104Key, ScancodeSet1>>> =
+    Lazy::new(|| {
+        Mutex::new(pc_keyboard::Keyboard::new(
+            ScancodeSet1::new(),
+            layouts::Us104Key,
+            HandleControl::Ignore,
+        ))
+    });
 
 pub fn mouse() -> &'static Mutex<Mouse> {
     if MOUSE.is_completed() {
@@ -22,13 +31,25 @@ pub fn mouse() -> &'static Mutex<Mouse> {
     }
 }
 
-pub fn keyboard() -> &'static Mutex<Keyboard> {
-    if KEYBOARD.is_completed() {
-        KEYBOARD.wait()
-    } else {
-        panic!("ps/2 devices are not initialized.")
+pub fn read_key_event() -> Option<DecodedKey> {
+    let mut kbd_controller = KEYBOARD_CONTROLLER.wait().lock();
+
+    if let Ok(scancode) = unsafe { kbd_controller.read_data() } {
+        let mut kbd = KEYBOARD.lock();
+        if let Ok(Some(event)) = kbd.add_byte(scancode) {
+            return kbd.process_keyevent(event);
+        }
     }
+    None
 }
+
+// pub fn keyboard() -> &'static Mutex<Keyboard> {
+//     if KEYBOARD.is_completed() {
+//         KEYBOARD.wait()
+//     } else {
+//         panic!("ps/2 devices are not initialized.")
+//     }
+// }
 
 pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
     // https://wiki.osdev.org/%228042%22_PS/2_Controller#Initialising%20the%20PS/2%20Controller

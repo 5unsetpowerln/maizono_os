@@ -41,7 +41,7 @@ impl LocalApic {
         Self { ptr: base_addr }
     }
 
-    fn write(&self, offset: usize, value: u32) {
+    fn write(&mut self, offset: usize, value: u32) {
         let ptr = unsafe { (self.ptr as *mut u32).add(offset) };
         unsafe {
             ptr.write_volatile(value);
@@ -56,23 +56,23 @@ impl LocalApic {
     }
 
     /// Volatile-write task priority register
-    pub fn write_task_priority_register(&self, value: u32) {
+    pub fn write_task_priority_register(&mut self, value: u32) {
         self.write(0x80 / 4, value);
     }
 
-    pub fn write_end_of_interrupt_register(&self, value: u32) {
+    pub fn write_end_of_interrupt_register(&mut self, value: u32) {
         self.write(0xb0 / 4, value);
     }
 
-    pub fn write_spurious_interrupt_vector_register(&self, value: u32) {
+    pub fn write_spurious_interrupt_vector_register(&mut self, value: u32) {
         self.write(0xf0 / 4, value);
     }
 
-    pub fn write_error_status_register(&self, value: u32) {
+    pub fn write_error_status_register(&mut self, value: u32) {
         self.write(0x280 / 4, value);
     }
 
-    pub fn write_interrupt_command_register_low(&self, value: u32) {
+    pub fn write_interrupt_command_register_low(&mut self, value: u32) {
         self.write(0x300 / 4, value);
     }
 
@@ -81,35 +81,35 @@ impl LocalApic {
         return self.read(0x300 / 4);
     }
 
-    pub fn write_interrupt_command_register_high(&self, value: u32) {
+    pub fn write_interrupt_command_register_high(&mut self, value: u32) {
         self.write(0x310 / 4, value);
     }
 
-    pub fn write_lvt_timer_register(&self, value: u32) {
+    pub fn write_lvt_timer_register(&mut self, value: u32) {
         self.write(0x320 / 4, value);
     }
 
-    pub fn write_lvt_performance_monitoring_counters_register(&self, value: u32) {
+    pub fn write_lvt_performance_monitoring_counters_register(&mut self, value: u32) {
         self.write(0x340 / 4, value);
     }
 
-    pub fn write_lvt_lint0_register(&self, value: u32) {
+    pub fn write_lvt_lint0_register(&mut self, value: u32) {
         self.write(0x350 / 4, value);
     }
 
-    pub fn write_lvt_lint1_register(&self, value: u32) {
+    pub fn write_lvt_lint1_register(&mut self, value: u32) {
         self.write(0x360 / 4, value);
     }
 
-    pub fn write_lvt_error_register(&self, value: u32) {
+    pub fn write_lvt_error_register(&mut self, value: u32) {
         self.write(0x370 / 4, value);
     }
 
-    pub fn write_initial_count_register_for_timer(&self, value: u32) {
+    pub fn write_initial_count_register_for_timer(&mut self, value: u32) {
         self.write(0x380 / 4, value);
     }
 
-    pub fn write_current_count_register_for_timer(&self, value: u32) {
+    pub fn write_current_count_register_for_timer(&mut self, value: u32) {
         self.write(0x390 / 4, value);
     }
 
@@ -117,7 +117,7 @@ impl LocalApic {
         return self.read(0x390 / 4);
     }
 
-    pub fn write_divide_config_register_for_timer(&self, value: u32) {
+    pub fn write_divide_config_register_for_timer(&mut self, value: u32) {
         self.write(0x3e0 / 4, value);
     }
 }

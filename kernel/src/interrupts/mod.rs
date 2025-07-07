@@ -3,15 +3,14 @@ pub mod apic;
 use crate::message::Message;
 use crate::{acpi, device::ps2};
 use apic::{IoApic, LocalApic, write_msr};
-use common::error;
 use log::{error, info};
-use spin::{Lazy, Once};
+use spin::{Lazy, Mutex};
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 
 use crate::{message, timer};
 
-pub static LOCAL_APIC: Once<LocalApic> = Once::new();
+pub static LAPIC: Mutex<LocalApic> = Mutex::new(LocalApic::new(0));
 
 const EXTERNAL_IRQ_OFFSET: u8 = 32;
 
@@ -84,46 +83,47 @@ fn init_apic() {
     // Initializing Local APIC
     {
         const MASKED: u32 = 1 << 16;
-        let local_apic = LocalApic::new(acpi::get_apic_info().local_apic_base());
-        LOCAL_APIC.call_once(|| local_apic);
+        let mut lapic = LocalApic::new(acpi::get_apic_info().local_apic_base());
 
         // https://github.com/mit-pdos/xv6-public/blob/master/lapic.c
         // https://wiki.osdev.org/APIC
 
         // Enable local APIC by setting spurious interrupt vector register.
-        local_apic.write_spurious_interrupt_vector_register(0x100 | 0xff);
+        lapic.write_spurious_interrupt_vector_register(0x100 | 0xff);
 
         // the configuration of timer is set on the timer module.
 
         // Disable logical interrupt lines to prevent troubles caused by unexpected interrupts.
-        local_apic.write_lvt_lint0_register(MASKED);
-        local_apic.write_lvt_lint1_register(MASKED);
+        lapic.write_lvt_lint0_register(MASKED);
+        lapic.write_lvt_lint1_register(MASKED);
 
         // Disable performance counter orverflow interrupts.
         // performance monitoring counter provides functionality to count cpu internal events such as number of cycle, number of cache mistake, etc.
-        local_apic.write_lvt_performance_monitoring_counters_register(MASKED);
+        lapic.write_lvt_performance_monitoring_counters_register(MASKED);
 
         // Map error interrupt to IRQ::ERROR.
-        local_apic.write_lvt_error_register((EXTERNAL_IRQ_OFFSET + IRQ::Error as u8) as u32);
+        lapic.write_lvt_error_register((EXTERNAL_IRQ_OFFSET + IRQ::Error as u8) as u32);
 
         // Clear error status register (require back-to-back writes).
-        local_apic.write_error_status_register(0);
-        local_apic.write_error_status_register(0);
+        lapic.write_error_status_register(0);
+        lapic.write_error_status_register(0);
 
         // Ack any outstanding interrupts.
-        local_apic.write_end_of_interrupt_register(0);
+        lapic.write_end_of_interrupt_register(0);
 
         // Send an Init Level De-Assert to synchronise arbitration ID's.
-        local_apic.write_interrupt_command_register_high(0);
+        lapic.write_interrupt_command_register_high(0);
         const BCAST: u32 = 0x00080000;
         const LEVEL: u32 = 0x00008000;
         const INIT: u32 = 0x00000500;
         const DELIVERY_STATUS: u32 = 0x00001000;
-        local_apic.write_interrupt_command_register_low(BCAST | LEVEL | INIT);
-        while (local_apic.read_interrupt_command_register_low() & DELIVERY_STATUS) != 0 {}
+        lapic.write_interrupt_command_register_low(BCAST | LEVEL | INIT);
+        while (lapic.read_interrupt_command_register_low() & DELIVERY_STATUS) != 0 {}
 
         // Enable interrupts on the APIC (but at this stage, whether the processor accepts the interrupt is a separate issue).
-        local_apic.write_task_priority_register(0);
+        lapic.write_task_priority_register(0);
+
+        *LAPIC.lock() = lapic;
     }
 
     // Initializing I/O APIC
@@ -173,7 +173,7 @@ unsafe fn disable_pic_8259() {
 }
 
 pub fn notify_end_of_interrupt() {
-    LOCAL_APIC.wait().write_end_of_interrupt_register(0);
+    LAPIC.lock().write_end_of_interrupt_register(0);
 }
 
 extern "x86-interrupt" fn breakpoint_handler(_stack_frame: InterruptStackFrame) {

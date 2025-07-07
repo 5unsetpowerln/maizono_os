@@ -7,7 +7,6 @@
 #![feature(ascii_char)]
 #![feature(ascii_char_variants)]
 #![feature(ptr_as_ref_unchecked)]
-
 extern crate alloc;
 
 mod acpi;
@@ -33,10 +32,9 @@ mod util;
 use core::arch::asm;
 use core::panic::PanicInfo;
 
-use alloc::format;
 use common::boot::BootInfo;
 use common::graphic::rgb;
-use device::ps2::{self, controller::ControllerError, mouse::MouseError};
+use device::ps2::{self};
 use glam::u64vec2;
 use graphic::{
     PixelWriter,
@@ -44,7 +42,7 @@ use graphic::{
     frame_buffer::{self},
 };
 use log::{debug, error, info};
-use timer::{TIMER_MANAGER, Timer};
+use timer::Timer;
 
 use crate::graphic::layer::LAYER_MANAGER;
 use crate::graphic::{create_canvas_and_layer, layer};
@@ -150,12 +148,6 @@ fn main(boot_info: &BootInfo) -> ! {
         .init()
         .unwrap_or_else(|err| error!("{:#?}", err));
 
-    // let rsdp_addr = boot_info.rsdp_addr.unwrap_or_else(|| {
-    //     error!("RSDP adderss wan't found. The kernel will panic.");
-    //     panic!();
-    // });
-    // info!("rsdp_addr: 0x{:X}", rsdp_addr.get());
-
     unsafe { acpi::init(boot_info.rsdp) };
 
     ps2::init(true, false);
@@ -163,9 +155,9 @@ fn main(boot_info: &BootInfo) -> ! {
     interrupts::init();
     x86_64::instructions::interrupts::enable();
 
-    timer::init_local_apic_timer();
-    timer::TIMER_MANAGER.lock().add_timer(Timer::new(200, 2));
-    timer::TIMER_MANAGER.lock().add_timer(Timer::new(600, -1));
+    timer::init_lapic_timer();
+    timer::TIMER_MANAGER.lock().add_timer(Timer::new(100, 1));
+    // timer::TIMER_MANAGER.lock().add_timer(Timer::new(600, -1));
 
     #[cfg(test)]
     test_main();
@@ -178,20 +170,17 @@ fn main(boot_info: &BootInfo) -> ! {
             if let Some(message) = message::QUEUE.lock().dequeue() {
                 match message {
                     message::Message::PS2KeyboardInterrupt => {
-                        // must receive data to prevent the block
-                        let data = unsafe { ps2::keyboard().lock().read_data() };
-                        debug!("{:?}", data);
+                        let key_code = ps2::read_key_event();
+                        info!("{:?}", key_code);
                     }
                     message::Message::LocalAPICTimerInterrupt => {
                         // debug!("current tick: {}", TIMER_MANAGER.lock().get_current_tick());
                     }
                     message::Message::TimerTimeout(timer) => {
                         info!("timer timeout: {}, {}", timer.timeout, timer.value);
-                        if timer.value > 0 {
-                            timer::TIMER_MANAGER
-                                .lock()
-                                .add_timer(Timer::new(timer.timeout + 100, timer.value + 1));
-                        }
+                        timer::TIMER_MANAGER
+                            .lock()
+                            .add_timer(Timer::new(100, timer.value + 1));
                     }
                     message::Message::PS2MouseInterrupt => {
                         error!("PS2 mouse is disabled but the interrupt occured.");

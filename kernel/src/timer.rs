@@ -1,16 +1,19 @@
 use core::cmp::Ordering;
 
 use alloc::collections::binary_heap::BinaryHeap;
-use spin::Mutex;
+use spin::{Mutex, Once};
 
 use crate::{
-    interrupts,
+    acpi,
+    interrupts::{self, LAPIC},
     message::{self, Message},
 };
 
 const INITIAL_COUNT: u32 = 0x1000000;
 
 pub static TIMER_MANAGER: Mutex<TimerManager> = Mutex::new(TimerManager::new());
+pub static LAPIC_TIMER_FREQ: Once<u32> = Once::new();
+const TIMER_FREQ: u32 = 100;
 
 pub struct TimerManager {
     tick: u64,
@@ -97,20 +100,29 @@ impl PartialOrd for Timer {
 /// - not-masked
 /// - mode: periodic
 /// start local apic timer with periodic mode
-pub fn init_local_apic_timer() {
-    // divide 1:1
-    interrupts::LOCAL_APIC
-        .wait()
-        .write_divide_config_register_for_timer(0b1011);
+pub fn init_lapic_timer() {
+    let mut lapic = LAPIC.lock();
 
-    // not-masked, periodic
-    interrupts::LOCAL_APIC.wait().write_lvt_timer_register(
+    // lapicの周波数を計測
+    lapic.write_divide_config_register_for_timer(0b1011); // divide 1:1
+    lapic.write_lvt_timer_register(
+        (0b001 << 16) | interrupts::InterruptVector::LocalAPICTimer.as_u8() as u32,
+    ); // not-masked, one-shot
+    lapic.write_initial_count_register_for_timer(u32::MAX); // start lapic timer
+
+    acpi::wait_milli_secs(100); // 100ミリ秒待機
+
+    let elapsed = u32::MAX - lapic.read_current_count_register_for_timer();
+    lapic.write_initial_count_register_for_timer(0);
+
+    LAPIC_TIMER_FREQ.call_once(|| elapsed * 10);
+
+    // lapicを周期モードでスタート
+    lapic.write_lvt_timer_register(
         (0b010 << 16) | interrupts::InterruptVector::LocalAPICTimer.as_u8() as u32,
-    );
+    ); // not-masked, periodic
 
-    interrupts::LOCAL_APIC
-        .wait()
-        .write_initial_count_register_for_timer(INITIAL_COUNT);
+    lapic.write_initial_count_register_for_timer(LAPIC_TIMER_FREQ.wait() / TIMER_FREQ); // lapicの周波数 * 割り込み周期
 }
 
 pub fn local_apic_timer_interrupt_hook() {
