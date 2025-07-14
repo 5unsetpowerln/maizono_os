@@ -1,7 +1,9 @@
 use acpi::rsdp::Rsdp;
 use uefi::mem::memory_map::MemoryMapOwned;
 
-use crate::{address::PhysPtr, graphic::GraphicInfo};
+use crate::graphic::GraphicInfo;
+
+pub type KernelEntryPoint = extern "sysv64" fn(&BootInfo) -> !;
 
 pub struct BootInfo {
     pub graphic_info: GraphicInfo,
@@ -22,7 +24,7 @@ impl BootInfo {
 pub struct Kernel {
     base_addr: u64,
     entry_point_addr: u64,
-    entry_point: extern "sysv64" fn(&BootInfo) -> !,
+    entry_point: KernelEntryPoint,
 }
 
 impl Kernel {

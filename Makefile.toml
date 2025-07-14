@@ -7,7 +7,7 @@ KERNEL_BUILD_TARGET_NAME = "x86_64-kernel"
 BUILD = "build"
 MOUNT_POINT_NAME = "mnt"
 DISK_IMAGE_NAME = "boot.img"
-OVMF_FILE_NAME = "OVMF-pure-efi.fd"
+OVMF_FILE_NAME = "OVMF_CODE.fd"
 
 [tasks.ignore-members]
 workspace = false
@@ -40,7 +40,7 @@ script = '''
 qemu-system-x86_64 -enable-kvm \
     -smp 4 \
     -m 1G \
-    -bios ${BUILD}/${OVMF_FILE_NAME} \
+    -drive if=pflash,format=raw,readonly=on,file=${BUILD}/${OVMF_FILE_NAME} \
     -drive format=raw,file=${BUILD}/${DISK_IMAGE_NAME} \
     -serial stdio \
 '''
@@ -50,11 +50,21 @@ script = '''
 qemu-system-x86_64 -enable-kvm \
     -smp 4 \
     -m 1G \
-    -bios ${BUILD}/${OVMF_FILE_NAME} \
+    -drive if=pflash,format=raw,readonly=on,file=${BUILD}/${OVMF_FILE_NAME} \
     -drive format=raw,file=${BUILD}/${DISK_IMAGE_NAME} \
     -serial stdio \
     -d int,cpu_reset,guest_errors,mmu \
     -s -S \
+'''
+
+[tasks.run_qemu_nographic]
+script = '''
+qemu-system-x86_64 -enable-kvm \
+    -smp 4 \
+    -m 1G \
+    -drive if=pflash,format=raw,readonly=on,file=${BUILD}/${OVMF_FILE_NAME} \
+    -drive format=raw,file=${BUILD}/${DISK_IMAGE_NAME} \
+    -nographic \
 '''
 
 [tasks.run_qemu_test]
@@ -64,7 +74,7 @@ set +e
 qemu-system-x86_64 -enable-kvm \
     -smp 4 \
     -m 1G \
-    -bios ${BUILD}/${OVMF_FILE_NAME} \
+    -drive if=pflash,format=raw,readonly=on,file=${BUILD}/${OVMF_FILE_NAME} \
     -drive format=raw,file=${BUILD}/${DISK_IMAGE_NAME} \
     -serial stdio \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
@@ -166,3 +176,7 @@ dependencies = ["build_debug_full", "run_qemu_gdb"]
 
 [tasks.run_test]
 dependencies = ["build_test", "run_qemu_test"]
+
+
+[tasks.run_debug_nographic]
+dependencies = ["build_debug", "run_qemu_nographic"]

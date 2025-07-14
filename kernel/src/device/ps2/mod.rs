@@ -156,6 +156,6 @@ pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
         });
     }
 
-    KEYBOARD.call_once(|| Mutex::new(keyboard));
+    KEYBOARD_CONTROLLER.call_once(|| Mutex::new(keyboard));
     MOUSE.call_once(|| Mutex::new(mouse));
 }

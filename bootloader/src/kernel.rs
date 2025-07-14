@@ -1,145 +1,77 @@
-use core::slice;
+use core::slice::from_raw_parts_mut;
 
 use alloc::vec;
-use anyhow::{anyhow, bail, Error, Result};
 use common::boot::Kernel;
 use goblin::elf;
-use log::debug;
 use uefi::{
+    CStr16,
     boot::{self, AllocateType, MemoryType},
     cstr16,
-    proto::media::file::{File, FileAttribute, FileInfo, FileMode, FileType},
-    CStr16,
+    proto::media::file::{File, FileInfo},
 };
 
-use crate::{file_info_size, open_root_dir};
+use crate::open_file;
 
 const KERNEL_FILE_NAME: &CStr16 = cstr16!("kernel.elf");
 const UEFI_PAGE_SIZE: usize = 0x1000;
 
-pub fn load_kernel() -> Result<Kernel> {
-    let mut root_dir = open_root_dir(boot::image_handle());
+pub fn load_kernel() -> Kernel {
+    let mut file = open_file(KERNEL_FILE_NAME);
 
-    let mut kernel_file = match root_dir
-        .open(KERNEL_FILE_NAME, FileMode::Read, FileAttribute::empty())
-        .map_err(|e| Error::msg(e).context("Failed to open kernel file."))?
-        .into_type()
-        .map_err(|e| {
-            Error::msg(e).context(
-                "Failed to make the kernel file handler into file type (regular file or directory).",
-            )
-        })? {
-        FileType::Regular(f) => f,
-        FileType::Dir(_) => {
-            bail!(anyhow!(
-                "{} was a directory. It must be a regular file.",
-                KERNEL_FILE_NAME
-            ));
-        }
-    };
+    let file_info = file
+        .get_boxed_info::<FileInfo>()
+        .expect("Failed to get kernel file info.");
+    let file_size = file_info.file_size() as usize;
+    let mut kernel_file_vec = vec![0; file_size];
 
-    let mut kernel_file_info_vec = vec![0; file_info_size(KERNEL_FILE_NAME)];
-    let kernel_file_info = kernel_file
-        .get_info::<FileInfo>(&mut kernel_file_info_vec)
-        .map_err(|e| Error::msg(e).context("Failed to get information of kernel file."))?;
+    file.read(&mut kernel_file_vec)
+        .expect("Failed to read kernel to the buffer.");
 
-    let kernel_file_size = kernel_file_info.file_size() as usize;
-
-    let mut kernel_file_vec = vec![0; kernel_file_size];
-    kernel_file
-        .read(&mut kernel_file_vec)
-        .map_err(|e| Error::msg(e).context("Failed to read data from the kernel file"))?;
-
-    Ok(load_elf(&kernel_file_vec)
-        .map_err(|e| Error::msg(e).context("Failed to load the elf file"))?)
+    load_elf(&kernel_file_vec)
 }
 
-fn load_elf(src: &[u8]) -> Result<Kernel> {
-    let elf =
-        elf::Elf::parse(src).map_err(|e| Error::msg(e).context("Failed to parse the elf."))?;
+fn load_elf(src: &[u8]) -> Kernel {
+    let elf = elf::Elf::parse(src).expect("Failed to parse the elf.");
 
-    let (dest_range, base_addr) = {
-        let mut dest_start = 0;
-        let mut dest_end = 0;
-        for program_header in elf.program_headers.iter() {
-            if program_header.p_type != elf::program_header::PT_LOAD {
-                continue;
-            }
-            dest_start = dest_start.min(program_header.p_paddr);
-            dest_end = dest_end.max(program_header.p_vaddr + program_header.p_memsz);
+    let mut dest_start = u64::MAX;
+    let mut dest_end = 0;
+    for ph in elf.program_headers.iter() {
+        if ph.p_type == elf::program_header::PT_LOAD {
+            dest_start = dest_start.min(ph.p_vaddr);
+            dest_end = dest_end.max(ph.p_vaddr + ph.p_memsz);
         }
-        ((dest_end - dest_start) as usize, dest_start)
-    };
-
-    let page_size = (dest_range + UEFI_PAGE_SIZE - 1) / UEFI_PAGE_SIZE;
-
-    boot::allocate_pages(
-        AllocateType::AnyPages,
-        // AllocateType::Address(base_addr),
-        MemoryType::LOADER_DATA,
-        page_size,
-    )
-    .map_err(|e| Error::msg(e).context("Failed to allocate pages for the kernel."))?
-    .as_ptr() as u64;
-
-    copy_load_segment(src, &elf);
-    debug!("base addr: 0x{:X}", base_addr);
-    // copy_dynamic_segment(src, base_addr, &elf);
-
-    let entry_point_addr = elf.entry;
-
-    Ok(Kernel::new(base_addr, entry_point_addr))
-}
-
-fn copy_load_segment(src: &[u8], elf: &elf::Elf) -> Result<()> {
-    for program_header in elf.program_headers.iter() {
-        if program_header.p_type != elf::program_header::PT_LOAD {
-            continue;
-        }
-
-        copy_segment(src, program_header)
-            .map_err(|e| Error::msg(e).context("Failed to copy the segment."))?;
     }
-    Ok(())
+    let dest_range = dest_end - dest_start;
+
+    let page_count = dest_range.div_ceil(UEFI_PAGE_SIZE as u64) as usize;
+    let _ = boot::allocate_pages(
+        AllocateType::Address(dest_start),
+        MemoryType::LOADER_DATA,
+        page_count,
+    )
+    .expect("Failed to allocate pages for the kernel.");
+
+    let copy_size_sum = copy_load_segment(src, &elf);
+    assert!(copy_size_sum < page_count * UEFI_PAGE_SIZE);
+
+    Kernel::new(dest_start, elf.entry)
 }
 
-// fn copy_dynamic_segment(src: &[u8], elf: &elf::Elf) -> Result<()> {
-//     for program_header in elf.program_headers.iter() {
-//         if program_header.p_type != elf::program_header::PT_DYNAMIC {
-//             debug!("type: {}", program_header.p_type);
-//             debug!(
-//                 "range: 0x{:X} ~ 0x{:X}",
-//                 program_header.p_paddr,
-//                 program_header.p_paddr + program_header.p_memsz
-//             );
-//             debug!("");
-//             continue;
-//         }
+fn copy_load_segment(src: &[u8], elf: &elf::Elf) -> usize {
+    let mut copy_size_sum = 0;
 
-//         copy_segment(src, program_header)
-//             .map_err(|e| Error::msg(e).context("Failed to copy the segment."))?;
-//     }
+    for ph in elf.program_headers.iter() {
+        if ph.p_type == elf::program_header::PT_LOAD {
+            let offset = ph.p_offset as usize;
+            let file_size = ph.p_filesz as usize;
+            let mem_size = ph.p_memsz as usize;
 
-//     Ok(())
-// }
+            let dest = unsafe { from_raw_parts_mut(ph.p_vaddr as *mut u8, mem_size) };
+            dest[..file_size].copy_from_slice(&src[offset..offset + file_size]);
+            dest[file_size..].fill(0);
+            copy_size_sum += mem_size;
+        }
+    }
 
-fn copy_segment(src: &[u8], program_header: &elf::ProgramHeader) -> Result<()> {
-    let offset = program_header.p_offset as usize;
-    let file_size = program_header.p_filesz as usize;
-    let mem_size = program_header.p_memsz as usize;
-    let virtual_addr = program_header.p_vaddr;
-    // let physical_addr = program_header.p_paddr;
-
-    debug!(
-        "copying to 0x{:X} ~ 0x{:X}",
-        virtual_addr,
-        (virtual_addr + mem_size as u64)
-    );
-
-    let dest = unsafe { slice::from_raw_parts_mut(virtual_addr as *mut u8, mem_size) };
-
-    dest[..file_size].copy_from_slice(&src[offset..offset + file_size]);
-    dest[file_size..].fill(0);
-
-    Ok(())
+    copy_size_sum
 }

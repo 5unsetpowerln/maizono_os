@@ -157,7 +157,6 @@ fn main(boot_info: &BootInfo) -> ! {
 
     timer::init_lapic_timer();
     timer::TIMER_MANAGER.lock().add_timer(Timer::new(100, 1));
-    // timer::TIMER_MANAGER.lock().add_timer(Timer::new(600, -1));
 
     #[cfg(test)]
     test_main();
@@ -180,7 +179,7 @@ fn main(boot_info: &BootInfo) -> ! {
                         info!("timer timeout: {}, {}", timer.timeout, timer.value);
                         timer::TIMER_MANAGER
                             .lock()
-                            .add_timer(Timer::new(100, timer.value + 1));
+                            .add_timer(Timer::new(timer.timeout + 100, timer.value + 1));
                     }
                     message::Message::PS2MouseInterrupt => {
                         error!("PS2 mouse is disabled but the interrupt occured.");

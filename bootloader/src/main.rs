@@ -7,25 +7,28 @@ use core::arch::asm;
 
 extern crate alloc;
 use acpi::rsdp::Rsdp;
+use alloc::vec::Vec;
 use anyhow::Error;
 use anyhow::Result;
-use common::address::PhysPtr;
+use anyhow::anyhow;
 use common::boot::BootInfo;
 use common::graphic::GraphicInfo;
 use kernel::load_kernel;
 use log::debug;
 use log::error;
 use log::info;
-use runtime::Time;
+use uefi::CStr16;
 use uefi::boot::ScopedProtocol;
 use uefi::helpers;
 use uefi::proto::console::gop::GraphicsOutput;
+use uefi::proto::media::file::File;
+use uefi::proto::media::file::FileAttribute;
+use uefi::proto::media::file::FileInfo;
+use uefi::proto::media::file::FileMode;
+use uefi::proto::media::file::FileType;
+use uefi::proto::media::file::RegularFile;
 use uefi::table::cfg::ACPI2_GUID;
-use uefi::{
-    CStr16,
-    prelude::*,
-    proto::media::file::{Directory, FileAttribute},
-};
+use uefi::{prelude::*, proto::media::file::Directory};
 
 #[entry]
 fn efi_main() -> Status {
@@ -35,47 +38,22 @@ fn efi_main() -> Status {
 fn main_inner() -> Status {
     helpers::init().unwrap();
 
-    info!("opening gop");
-    let mut gop = match open_gop() {
-        Ok(g) => g,
-        Err(e) => {
-            info!("hello");
-            print_error(&Error::msg(e).context("Failed to open graphics-output-protocol."));
-            panic!("panicked.");
-        }
-    };
-    let graphic_info =
-        match GraphicInfo::from_gop(&mut gop) {
-            Ok(info) => info,
-            Err(err) => {
-                print_error(&Error::msg(err.msg()).context(
-                    "Failed to create common::GraphicInfo to give to the kernel from gop.",
-                ));
-                panic!("panicked");
-            }
-        };
-    info!(
-        "frame_buffer_addr: 0x{:X}",
-        graphic_info.frame_buffer_addr.unwrap()
-    );
+    // init graphic
+    info!("Opening gop.");
+    let graphic_info = init_graphic();
 
-    info!("loading kernel");
-    let kernel = match load_kernel() {
-        Ok(addr) => addr,
-        Err(err) => {
-            print_error(&err.context("Failed to load the kernel"));
-            panic!("panicked");
-        }
-    };
-    info!("kernel_entry_point: 0x{:X}", kernel.entry_point_addr());
-    info!("kernel_base_addr: 0x{:X}", kernel.base_addr());
-    debug!("main_inner: 0x{:X}", main_inner as *const fn() as u64);
+    // load kernel
+    info!("Loading kernel.");
+    let kernel = load_kernel();
+    debug!("entrypoint: 0x{:x}", kernel.entry_point_addr());
 
-    info!("finding rsdp addr.");
-    let rsdp = find_rsdp();
+    // init acpi
+    info!("Getting RSDP.");
+    let rsdp = init_acpi();
 
+    // exit boot services
     info!("exiting boot services.");
-    let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::BOOT_SERVICES_DATA) };
+    let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::RUNTIME_SERVICES_DATA) };
 
     let boot_info = BootInfo::new(graphic_info, memory_map, rsdp);
     kernel.run(&boot_info);
@@ -87,7 +65,15 @@ fn main_inner() -> Status {
     }
 }
 
-fn find_rsdp() -> &'static Rsdp {
+fn init_graphic() -> GraphicInfo {
+    let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>()
+        .expect("Failed to get handle for protocol of GraphicsOutput.");
+    let mut gop = boot::open_protocol_exclusive::<GraphicsOutput>(gop_handle)
+        .expect("Failed to open protocol of GraphicsOutput exclusively.");
+    GraphicInfo::from_gop(&mut gop).expect("Failed to get graphic info from gop.")
+}
+
+fn init_acpi() -> &'static Rsdp {
     if let Some(rsdp_addr) = system::with_config_table(|table| {
         let acpi_entry = table.iter().find(|e| e.guid == ACPI2_GUID);
         acpi_entry.map(|e| e.address as u64)
@@ -109,42 +95,6 @@ fn open_root_dir(image: Handle) -> Directory {
     simple_file_system.open_volume().unwrap()
 }
 
-fn file_info_size(file_name: &CStr16) -> usize {
-    // uefi::proto::media::file::FileInfo (version: 0.32.0) has following fields:
-    // pub struct FileInfo {
-    //     size: u64,
-    //     file_size: u64,
-    //     physical_size: u64,
-    //     create_time: Time,
-    //     last_access_time: Time,
-    //     modification_time: Time,
-    //     attribute: FileAttribute,
-    //     file_name: [Char16],
-    // }
-    // only file_name field has dynamic length so, caller have to give file_name.
-
-    let u64_size = size_of::<u64>();
-    let time_size = size_of::<Time>();
-
-    let size_size = u64_size;
-    let file_size_size = u64_size;
-    let physical_size_size = u64_size;
-    let create_time_size_size = time_size;
-    let last_access_time_size = time_size;
-    let modification_time_size = time_size;
-    let attribute_size = size_of::<FileAttribute>();
-    let file_name_size = file_name.num_bytes();
-
-    size_size
-        + file_size_size
-        + physical_size_size
-        + create_time_size_size
-        + last_access_time_size
-        + modification_time_size
-        + attribute_size
-        + file_name_size
-}
-
 fn open_gop() -> Result<ScopedProtocol<GraphicsOutput>> {
     let gop_handle = boot::get_handle_for_protocol::<GraphicsOutput>().map_err(|e| {
         Error::msg(e).context("Failed to get handle for protocol of GraphicsOutput.")
@@ -157,4 +107,52 @@ fn open_gop() -> Result<ScopedProtocol<GraphicsOutput>> {
 
 fn print_error(err: &Error) {
     error!("{:#?}", err);
+}
+
+fn get_file_size(file: &mut RegularFile) -> Result<u64> {
+    let mut prev_size = 0;
+    let mut count = 0;
+
+    loop {
+        if count > 0x100 {
+            return Err(anyhow!("Stopped to attempt allocate file info."));
+        }
+
+        let mut buffer = Vec::new();
+        let size = prev_size + 0x20;
+        buffer.resize(size, 0);
+
+        match file.get_info::<FileInfo>(&mut buffer) {
+            Ok(c) => return Ok(c.file_size()),
+            Err(e) => {
+                if e.status() == Status::BUFFER_TOO_SMALL {
+                    prev_size = buffer.len();
+                    count += 1;
+                    continue;
+                } else {
+                    return Err(anyhow!(Error::msg(e)));
+                }
+            }
+        }
+    }
+}
+
+fn open_file(file_name: &CStr16) -> RegularFile {
+    let mut simple_file_system = uefi::boot::get_image_file_system(boot::image_handle()).unwrap();
+    let mut root_dir = simple_file_system.open_volume().unwrap();
+
+    let file = match root_dir
+        .open(file_name, FileMode::Read, FileAttribute::empty())
+        .expect("Failed to open kernel file.")
+        .into_type()
+        .expect(
+            "Failed to make the kernel file handler into file type (regular file or directory).",
+        ) {
+        FileType::Regular(f) => f,
+        FileType::Dir(_) => {
+            panic!("{} was a directory. It must be a regular file.", file_name)
+        }
+    };
+
+    file
 }
