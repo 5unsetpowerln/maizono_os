@@ -1,4 +1,4 @@
-use alloc::format;
+use alloc::{format, string::String};
 use log::LevelFilter;
 
 use crate::{graphic::console, kprintln, serial_println};
@@ -18,12 +18,23 @@ impl log::Log for Logger {
                 " ".repeat(5 - record.level().as_str().chars().count()),
                 record.level()
             );
+
+            let file_msg = if let Some(s) = record.file() {
+                let l = record.line().unwrap();
+                format!("{}@{}: ", s, l)
+            } else {
+                format!("???@???: ")
+            };
+
             let content_msg = format!("{}", record.args());
             let content_msg = content_msg.replace(
                 "\n",
-                &format!("\n{}", " ".repeat(level_msg.chars().count() + 1)),
+                &format!(
+                    "\n{}",
+                    " ".repeat(level_msg.chars().count() + file_msg.chars().count())
+                ),
             );
-            let msg = format!("{} {}", level_msg, content_msg);
+            let msg = format!("{}{}{}", level_msg, file_msg, content_msg);
 
             serial_println!("{}", msg);
             if console::is_initialized() {

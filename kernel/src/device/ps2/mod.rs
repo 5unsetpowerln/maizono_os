@@ -13,7 +13,7 @@ pub mod mouse;
 const_assert!(controller::LOOP_TIMEOUT > mouse::EVENT_BUFFER_LENGTH);
 
 static MOUSE: Once<Mutex<Mouse>> = Once::new();
-static KEYBOARD_CONTROLLER: Once<Mutex<Keyboard>> = Once::new();
+pub static KEYBOARD_CONTROLLER: Once<Mutex<Keyboard>> = Once::new();
 static KEYBOARD: Lazy<Mutex<pc_keyboard::Keyboard<layouts::Us104Key, ScancodeSet1>>> =
     Lazy::new(|| {
         Mutex::new(pc_keyboard::Keyboard::new(
@@ -23,22 +23,18 @@ static KEYBOARD: Lazy<Mutex<pc_keyboard::Keyboard<layouts::Us104Key, ScancodeSet
         ))
     });
 
-pub fn mouse() -> &'static Mutex<Mouse> {
-    if MOUSE.is_completed() {
-        MOUSE.wait()
-    } else {
-        panic!("ps/2 devices are not initialized.")
-    }
-}
+// pub fn mouse() -> &'static Mutex<Mouse> {
+//     if MOUSE.is_completed() {
+//         MOUSE.wait()
+//     } else {
+//         panic!("ps/2 devices are not initialized.")
+//     }
+// }
 
-pub fn read_key_event() -> Option<DecodedKey> {
-    let mut kbd_controller = KEYBOARD_CONTROLLER.wait().lock();
-
-    if let Ok(scancode) = unsafe { kbd_controller.read_data() } {
-        let mut kbd = KEYBOARD.lock();
-        if let Ok(Some(event)) = kbd.add_byte(scancode) {
-            return kbd.process_keyevent(event);
-        }
+pub fn read_key_event(scancode: u8) -> Option<DecodedKey> {
+    let mut kbd = KEYBOARD.lock();
+    if let Ok(Some(event)) = kbd.add_byte(scancode) {
+        return kbd.process_keyevent(event);
     }
     None
 }

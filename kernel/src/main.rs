@@ -42,6 +42,7 @@ use graphic::{
     frame_buffer::{self},
 };
 use log::{debug, error, info};
+use pc_keyboard::DecodedKey;
 use timer::Timer;
 
 use crate::graphic::layer::LAYER_MANAGER;
@@ -155,8 +156,8 @@ fn main(boot_info: &BootInfo) -> ! {
     interrupts::init();
     x86_64::instructions::interrupts::enable();
 
-    timer::init_lapic_timer();
-    timer::TIMER_MANAGER.lock().add_timer(Timer::new(100, 1));
+    timer::init_lagic_timer();
+    // timer::TIMER_MANAGER.lock().add_timer(Timer::new(100, 1));
 
     #[cfg(test)]
     test_main();
@@ -168,11 +169,18 @@ fn main(boot_info: &BootInfo) -> ! {
             x86_64::instructions::interrupts::disable();
             if let Some(message) = message::QUEUE.lock().dequeue() {
                 match message {
-                    message::Message::PS2KeyboardInterrupt => {
-                        let key_code = ps2::read_key_event();
-                        info!("{:?}", key_code);
+                    message::Message::PS2KeyboardInterrupt(result) => {
+                        if let Ok(scancode) = result {
+                            if let Some(key_code) = ps2::read_key_event(scancode) {
+                                match key_code {
+                                    DecodedKey::Unicode(character) => kprint!("{}", character),
+                                    DecodedKey::RawKey(key) => kprint!("{:?}", key),
+                                }
+                            }
+                        }
                     }
                     message::Message::LocalAPICTimerInterrupt => {
+                        // timer::TIMER_MANAGER.lock().increment_tick();
                         // debug!("current tick: {}", TIMER_MANAGER.lock().get_current_tick());
                     }
                     message::Message::TimerTimeout(timer) => {

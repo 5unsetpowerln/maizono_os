@@ -1,7 +1,9 @@
 use core::cmp::Ordering;
 
 use alloc::collections::binary_heap::BinaryHeap;
+use log::debug;
 use spin::{Mutex, Once};
+use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::{
     acpi,
@@ -100,31 +102,39 @@ impl PartialOrd for Timer {
 /// - not-masked
 /// - mode: periodic
 /// start local apic timer with periodic mode
-pub fn init_lapic_timer() {
+pub fn init_lagic_timer() {
+    debug!("Initializing lapic timer");
+
     let mut lapic = LAPIC.lock();
 
     // lapicの周波数を計測
     lapic.write_divide_config_register_for_timer(0b1011); // divide 1:1
-    lapic.write_lvt_timer_register(
-        (0b001 << 16) | interrupts::InterruptVector::LocalAPICTimer.as_u8() as u32,
-    ); // not-masked, one-shot
+    lapic.write_lvt_timer_register(0b001 << 16); // masked, one-shot
+
     lapic.write_initial_count_register_for_timer(u32::MAX); // start lapic timer
-
     acpi::wait_milli_secs(100); // 100ミリ秒待機
-
     let elapsed = u32::MAX - lapic.read_current_count_register_for_timer();
     lapic.write_initial_count_register_for_timer(0);
 
     LAPIC_TIMER_FREQ.call_once(|| elapsed * 10);
 
     // lapicを周期モードでスタート
+    lapic.write_divide_config_register_for_timer(0b1011); // divide 1:1
     lapic.write_lvt_timer_register(
         (0b010 << 16) | interrupts::InterruptVector::LocalAPICTimer.as_u8() as u32,
     ); // not-masked, periodic
 
     lapic.write_initial_count_register_for_timer(LAPIC_TIMER_FREQ.wait() / TIMER_FREQ); // lapicの周波数 * 割り込み周期
+
+    debug!("Initialized lapic timer.")
 }
 
-pub fn local_apic_timer_interrupt_hook() {
-    TIMER_MANAGER.lock().increment_tick();
+// pub fn local_apic_timer_interrupt_hook() {
+//     TIMER_MANAGER.lock().increment_tick();
+// }
+
+static TEST_COUNTER: Mutex<u64> = Mutex::new(0);
+pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
+    message::enqueue(Message::LocalAPICTimerInterrupt);
+    interrupts::notify_end_of_interrupt();
 }

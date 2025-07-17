@@ -2,6 +2,7 @@ pub mod apic;
 
 use crate::message::Message;
 use crate::{acpi, device::ps2};
+use ::acpi::madt::InterruptSourceOverrideEntry;
 use apic::{IoApic, LocalApic, write_msr};
 use log::{error, info};
 use spin::{Lazy, Mutex};
@@ -21,6 +22,7 @@ enum IRQ {
     Keyboard = 1, // PS/2 Keyboard
     Mouse = 12,
     Error = 19, // Cpu internal error (LVT Error)
+    Spurious = 31,
 }
 
 impl IRQ {
@@ -35,6 +37,7 @@ pub enum InterruptVector {
     ExternalIrqKeyboard = EXTERNAL_IRQ_OFFSET + IRQ::Keyboard.as_u8(),
     ExternalIrqMouse = EXTERNAL_IRQ_OFFSET + IRQ::Mouse.as_u8(),
     ExternalIrqError = EXTERNAL_IRQ_OFFSET + IRQ::Error.as_u8(),
+    Spurious = EXTERNAL_IRQ_OFFSET + IRQ::Spurious.as_u8(),
     LocalAPICTimer = 0x41,
 }
 
@@ -48,11 +51,13 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     let mut idt = InterruptDescriptorTable::new();
     idt.breakpoint.set_handler_fn(breakpoint_handler);
     idt.double_fault.set_handler_fn(double_fault_handler);
-    idt[InterruptVector::LocalAPICTimer as u8].set_handler_fn(timer_interrupt_handler);
-    idt[InterruptVector::ExternalIrqTimer.as_u8()].set_handler_fn(timer_interrupt_handler);
+    idt[InterruptVector::LocalAPICTimer as u8].set_handler_fn(timer::interrupt_handler);
+    idt[InterruptVector::ExternalIrqTimer.as_u8()]
+        .set_handler_fn(external_irq_timer_interrupt_handler);
     idt[InterruptVector::ExternalIrqKeyboard.as_u8()]
         .set_handler_fn(ps2::keyboard::interrupt_handler);
     idt[InterruptVector::ExternalIrqMouse.as_u8()].set_handler_fn(mouse_interrupt_handler);
+    idt[InterruptVector::Spurious.as_u8()].set_handler_fn(spurious_interrupt_handler);
 
     idt
 });
@@ -89,7 +94,9 @@ fn init_apic() {
         // https://wiki.osdev.org/APIC
 
         // Enable local APIC by setting spurious interrupt vector register.
-        lapic.write_spurious_interrupt_vector_register(0x100 | 0xff);
+        lapic.write_spurious_interrupt_vector_register(
+            0x100 | InterruptVector::Spurious.as_u8() as u32,
+        );
 
         // the configuration of timer is set on the timer module.
 
@@ -188,11 +195,11 @@ extern "x86-interrupt" fn double_fault_handler(
     panic!("double fault occurred.");
 }
 
-extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    timer::local_apic_timer_interrupt_hook();
-    message::enqueue(Message::LocalAPICTimerInterrupt);
-    notify_end_of_interrupt();
-}
+// extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
+//     timer::local_apic_timer_interrupt_hook();
+//     message::enqueue(Message::LocalAPICTimerInterrupt);
+//     notify_end_of_interrupt();
+// }
 
 extern "x86-interrupt" fn external_irq_timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     error!("An external irq timer interrupt was happened.");
@@ -202,4 +209,13 @@ extern "x86-interrupt" fn external_irq_timer_interrupt_handler(_stack_frame: Int
 extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
     error!("A mouse interrupt was happned.");
     notify_end_of_interrupt();
+}
+
+extern "x86-interrupt" fn external_keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    error!("A mouse interrupt was happned.");
+    notify_end_of_interrupt();
+}
+
+extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    info!("Spurious interrupt.");
 }

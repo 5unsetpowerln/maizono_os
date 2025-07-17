@@ -1,7 +1,13 @@
+use log::{debug, info};
+use pc_keyboard::DecodedKey;
 use spin::{Lazy, Mutex};
 use x86_64::structures::idt::InterruptStackFrame;
+use xhci::extended_capabilities::debug;
 
-use crate::{interrupts, message};
+use crate::{
+    device::ps2::{self, KEYBOARD_CONTROLLER, read_key_event},
+    interrupts, kprint, message,
+};
 
 use super::controller::{Controller, ControllerError};
 
@@ -142,15 +148,8 @@ impl Keyboard {
     }
 }
 
-// static KEYBOARD: Lazy<Mutex<pc_keyboard::Keyboard<layouts::Us104Key, ScancodeSet1>>> = Lazy::new(|| {
-//     Mutex::new(pc_keyboard::Keyboard::new(ScancodeSet1::new(), layouts::Us104Key, HandleControl::Ignore))
-// });
-
-// pub fn read_key_event() -> Option<DecodedKey> {
-//     let mut 
-// }
-
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
-    message::enqueue(message::Message::PS2KeyboardInterrupt);
+    let result = unsafe { ps2::KEYBOARD_CONTROLLER.wait().lock().read_data() };
+    message::enqueue(message::Message::PS2KeyboardInterrupt(result));
     interrupts::notify_end_of_interrupt();
 }
