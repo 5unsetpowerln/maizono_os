@@ -3,12 +3,12 @@ pub(crate) const EVENT_BUFFER_LENGTH: usize = 128;
 use glam::I64Vec2;
 use x86_64::structures::idt::InterruptStackFrame;
 
-use crate::{interrupts, message, mouse};
-
-use super::{
-    controller::{Controller, ControllerError},
-    keyboard::Response,
+use crate::{
+    device::ps2::{InterpretableResponse, Response},
+    interrupts, message, mouse,
 };
+
+use super::controller::{Controller, ControllerError};
 
 type Result<T> = core::result::Result<T, MouseError>;
 
@@ -135,7 +135,10 @@ impl Mouse {
 
         // check response
         let response = unsafe { self.read_response() }?;
-        if !matches!(response, Response::Acknowledged) {
+        if !matches!(
+            response,
+            Response::Interpretable(InterpretableResponse::Acknowledged)
+        ) {
             return Err(MouseError::CommandNotAcknowledged(response));
         }
 
@@ -145,7 +148,10 @@ impl Mouse {
 
             // check response
             let response = unsafe { self.read_response() }?;
-            if !matches!(response, Response::Acknowledged) {
+            if !matches!(
+                response,
+                Response::Interpretable(InterpretableResponse::Acknowledged)
+            ) {
                 return Err(MouseError::CommandNotAcknowledged(response));
             }
         }
@@ -161,15 +167,20 @@ impl Mouse {
     pub(crate) unsafe fn reset_and_self_test(&mut self) -> Result<u8> {
         unsafe { self.write_command(Command::ResetAndSelfTest, None)? };
 
-        let test_result = unsafe { self.read_response() }?;
-        match test_result {
-            Response::SelfTestPassed => {
-                let id = unsafe { self.read_data() }?;
-                Ok(id)
+        let response = unsafe { self.read_response() }?;
+
+        if let Response::Interpretable(i_resp) = response {
+            match i_resp {
+                InterpretableResponse::SelfTestPassed => {
+                    let id = unsafe { self.read_data() }?;
+                    Ok(id)
+                }
+                InterpretableResponse::SelfTestFailed1 => Err(MouseError::SelfTestFailed),
+                InterpretableResponse::SelfTestFailed2 => Err(MouseError::SelfTestFailed),
+                _ => Err(MouseError::InvalidResponse),
             }
-            Response::SelfTestFailed1 => Err(MouseError::SelfTestFailed),
-            Response::SelfTestFailed2 => Err(MouseError::SelfTestFailed),
-            _ => Err(MouseError::InvalidResponse),
+        } else {
+            Err(MouseError::InvalidResponse)
         }
     }
 

@@ -1,11 +1,12 @@
 use log::{debug, info};
+use num_enum::TryFromPrimitive;
 use pc_keyboard::DecodedKey;
 use spin::{Lazy, Mutex};
 use x86_64::structures::idt::InterruptStackFrame;
 use xhci::extended_capabilities::debug;
 
 use crate::{
-    device::ps2::{self, KEYBOARD_CONTROLLER, read_key_event},
+    device::ps2::{self, InterpretableResponse, KEYBOARD_CONTROLLER, Response, read_key_event},
     interrupts, kprint, message,
 };
 
@@ -21,6 +22,7 @@ pub enum KeyboardError {
     CommandNotAcknowledged(Response),
     SelfTestFailed,
     InvalidResponse,
+    ScanCodeNotSet,
 }
 
 impl From<ControllerError> for KeyboardError {
@@ -30,64 +32,25 @@ impl From<ControllerError> for KeyboardError {
 }
 
 #[derive(Debug)]
-pub enum Response {
-    // Key detection error or internal buffer overrun
-    InternalBufferOverrun = 0x00,
-
-    // Self test passed (sent after "0xFF (reset)" command or keyboard power up)
-    SelfTestPassed = 0xaa,
-
-    // Response to "0xEE (echo)" command
-    ResponseToEcho = 0xee,
-
-    // Command acknowledged (ACK)
-    Acknowledged = 0xfa,
-
-    // Self test failed (sent after "0xFF (reset)" command or keyboard power up)
-    SelfTestFailed1 = 0xfc,
-    SelfTestFailed2 = 0xfd,
-
-    // Resend (keyboard wants controller to repeat last command it sent)
-    Resend = 0xfe,
-
-    // Key detection error or internal buffer overrun
-    KeyDetectionErrorOrInteralBufferOverrun = 0xff,
+enum Command {
+    GetOrSetCurrentScanCodeSet = 0xF0,
+    ResetAndSelfTest = 0xff,
 }
 
-impl Response {
-    pub fn from_u8(code: u8) -> Self {
-        if code == Self::InternalBufferOverrun.as_u8() {
-            return Self::InternalBufferOverrun;
-        } else if code == Self::SelfTestPassed.as_u8() {
-            return Self::SelfTestPassed;
-        } else if code == Self::ResponseToEcho.as_u8() {
-            return Self::ResponseToEcho;
-        } else if code == Self::Acknowledged.as_u8() {
-            return Self::Acknowledged;
-        } else if code == Self::SelfTestFailed1.as_u8() {
-            return Self::SelfTestFailed1;
-        } else if code == Self::SelfTestFailed2.as_u8() {
-            return Self::SelfTestFailed2;
-        } else if code == Self::Resend.as_u8() {
-            return Self::Resend;
-        } else if code == Self::KeyDetectionErrorOrInteralBufferOverrun.as_u8() {
-            return Self::KeyDetectionErrorOrInteralBufferOverrun;
-        } else {
-            panic!("ps/2 keyboard responded invalid response: 0x{:X}", code);
-        }
-    }
-
-    pub fn as_u8(self) -> u8 {
+impl Command {
+    fn as_u8(self) -> u8 {
         self as u8
     }
 }
 
 #[derive(Debug)]
-enum Command {
-    ResetAndSelfTest = 0xff,
+pub enum ScanCode {
+    ScanCode1 = 1,
+    ScanCode2 = 2,
+    ScanCode3 = 3,
 }
 
-impl Command {
+impl ScanCode {
     fn as_u8(self) -> u8 {
         self as u8
     }
@@ -115,32 +78,89 @@ impl Keyboard {
 
         // check response
         let response = unsafe { self.read_response() }?;
-        if !matches!(response, Response::Acknowledged) {
+
+        if !matches!(
+            response,
+            Response::Interpretable(InterpretableResponse::Acknowledged)
+        ) {
             return Err(KeyboardError::CommandNotAcknowledged(response));
         }
 
         if let Some(data) = data {
             // write data
             unsafe { self.controller.write_data(data) }?;
+
             // check response
-            let response = unsafe { self.read_response() }?;
-            if !matches!(response, Response::Acknowledged) {
+            if !matches!(
+                response,
+                Response::Interpretable(InterpretableResponse::Acknowledged)
+            ) {
                 return Err(KeyboardError::CommandNotAcknowledged(response));
             }
         }
         return Ok(());
     }
 
+    pub unsafe fn get_current_scan_code(&mut self) -> Result<ScanCode> {
+        unsafe { self.write_command(Command::GetOrSetCurrentScanCodeSet, Some(0)) }?;
+
+        let response = unsafe { self.read_response() }?;
+
+        if matches!(
+            response,
+            Response::Interpretable(InterpretableResponse::Acknowledged)
+        ) {
+            let response = unsafe { self.read_response() }?;
+
+            if let Response::Other(other_resp) = response {
+                match other_resp {
+                    1 => return Ok(ScanCode::ScanCode1),
+                    2 => return Ok(ScanCode::ScanCode2),
+                    3 => return Ok(ScanCode::ScanCode3),
+                    _ => {}
+                }
+            }
+
+            panic!("Invalid scan code number.");
+        } else {
+            panic!("ACK is not returned.")
+        }
+    }
+
+    pub unsafe fn set_scan_code(&mut self, scan_code_type: ScanCode) -> Result<()> {
+        unsafe {
+            self.write_command(
+                Command::GetOrSetCurrentScanCodeSet,
+                Some(scan_code_type.as_u8()),
+            )
+        }?;
+
+        let response = unsafe { self.read_response() }?;
+
+        if matches!(
+            response,
+            Response::Interpretable(InterpretableResponse::Acknowledged)
+        ) {
+            return Ok(());
+        }
+
+        panic!("ACK is not returned.")
+    }
+
     pub unsafe fn reset_and_self_test(&mut self) -> Result<()> {
         unsafe { self.write_command(Command::ResetAndSelfTest, None) }?;
         let response = unsafe { self.read_response() }?;
 
-        return match response {
-            Response::SelfTestPassed => Ok(()),
-            Response::SelfTestFailed1 => Err(KeyboardError::SelfTestFailed),
-            Response::SelfTestFailed2 => Err(KeyboardError::SelfTestFailed),
-            _ => Err(KeyboardError::InvalidResponse),
-        };
+        if let Response::Interpretable(i_resp) = response {
+            return match i_resp {
+                InterpretableResponse::SelfTestPassed => Ok(()),
+                InterpretableResponse::SelfTestFailed1 => Err(KeyboardError::SelfTestFailed),
+                InterpretableResponse::SelfTestFailed2 => Err(KeyboardError::SelfTestFailed),
+                _ => Err(KeyboardError::InvalidResponse),
+            };
+        } else {
+            return Err(KeyboardError::InvalidResponse);
+        }
     }
 
     pub unsafe fn read_data(&mut self) -> Result<u8> {

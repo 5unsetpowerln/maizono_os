@@ -136,5 +136,6 @@ pub fn init_lagic_timer() {
 static TEST_COUNTER: Mutex<u64> = Mutex::new(0);
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     message::enqueue(Message::LocalAPICTimerInterrupt);
+    TIMER_MANAGER.lock().increment_tick();
     interrupts::notify_end_of_interrupt();
 }

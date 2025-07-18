@@ -1,10 +1,13 @@
 use controller::Controller;
 use keyboard::Keyboard;
-use log::{debug, info};
+use log::debug;
 use mouse::Mouse;
+use num_enum::TryFromPrimitive;
 use pc_keyboard::{DecodedKey, HandleControl, ScancodeSet1, layouts};
 use spin::{Lazy, Mutex, Once};
 use static_assertions::const_assert;
+
+use crate::device::ps2::keyboard::ScanCode;
 
 pub mod controller;
 pub mod keyboard;
@@ -23,14 +26,6 @@ static KEYBOARD: Lazy<Mutex<pc_keyboard::Keyboard<layouts::Us104Key, ScancodeSet
         ))
     });
 
-// pub fn mouse() -> &'static Mutex<Mouse> {
-//     if MOUSE.is_completed() {
-//         MOUSE.wait()
-//     } else {
-//         panic!("ps/2 devices are not initialized.")
-//     }
-// }
-
 pub fn read_key_event(scancode: u8) -> Option<DecodedKey> {
     let mut kbd = KEYBOARD.lock();
     if let Ok(Some(event)) = kbd.add_byte(scancode) {
@@ -38,14 +33,6 @@ pub fn read_key_event(scancode: u8) -> Option<DecodedKey> {
     }
     None
 }
-
-// pub fn keyboard() -> &'static Mutex<Keyboard> {
-//     if KEYBOARD.is_completed() {
-//         KEYBOARD.wait()
-//     } else {
-//         panic!("ps/2 devices are not initialized.")
-//     }
-// }
 
 pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
     // https://wiki.osdev.org/%228042%22_PS/2_Controller#Initialising%20the%20PS/2%20Controller
@@ -96,7 +83,7 @@ pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
 
         let has_second_port = !config_byte.get_second_port_clock();
         if has_second_port {
-            info!("second port is supported.");
+            debug!("second port is supported.");
             // if the controller has a dual channel.
             // disable the second PS/2 port again
             controller.disable_second_port();
@@ -152,6 +139,61 @@ pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
         });
     }
 
+    unsafe {
+        let scan_code_type = keyboard.get_current_scan_code().unwrap();
+        debug!("scan code type: {:?}", scan_code_type);
+        keyboard.set_scan_code(ScanCode::ScanCode1).unwrap();
+    }
+
     KEYBOARD_CONTROLLER.call_once(|| Mutex::new(keyboard));
     MOUSE.call_once(|| Mutex::new(mouse));
+}
+
+#[derive(Debug)]
+pub enum Response {
+    Interpretable(InterpretableResponse),
+    Other(u8),
+}
+
+#[repr(u8)]
+#[derive(Debug, TryFromPrimitive)]
+pub enum InterpretableResponse {
+    // Key detection error or internal buffer overrun
+    InternalBufferOverrun = 0x00,
+
+    // Self test passed (sent after "0xFF (reset)" command or keyboard power up)
+    SelfTestPassed = 0xaa,
+
+    // Response to "0xEE (echo)" command
+    ResponseToEcho = 0xee,
+
+    // Command acknowledged (ACK)
+    Acknowledged = 0xfa,
+
+    // Self test failed (sent after "0xFF (reset)" command or keyboard power up)
+    SelfTestFailed1 = 0xfc,
+    SelfTestFailed2 = 0xfd,
+
+    // Resend (keyboard wants controller to repeat last command it sent)
+    Resend = 0xfe,
+
+    // Key detection error or internal buffer overrun
+    KeyDetectionErrorOrInteralBufferOverrun = 0xff,
+}
+
+impl Response {
+    fn from_u8(value: u8) -> Self {
+        if let Ok(interpretable) = InterpretableResponse::try_from(value) {
+            return Self::Interpretable(interpretable);
+        } else {
+            return Self::Other(value);
+        }
+    }
+
+    fn as_u8(self) -> u8 {
+        match self {
+            Self::Interpretable(i) => i as u8,
+            Self::Other(v) => v,
+        }
+    }
 }

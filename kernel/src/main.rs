@@ -137,6 +137,7 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
 
 fn main(boot_info: &BootInfo) -> ! {
     logger::init();
+
     paging::init();
     gdt::init();
     frame_manager::init(&boot_info.memory_map);
@@ -179,10 +180,7 @@ fn main(boot_info: &BootInfo) -> ! {
                             }
                         }
                     }
-                    message::Message::LocalAPICTimerInterrupt => {
-                        // timer::TIMER_MANAGER.lock().increment_tick();
-                        // debug!("current tick: {}", TIMER_MANAGER.lock().get_current_tick());
-                    }
+                    message::Message::LocalAPICTimerInterrupt => {}
                     message::Message::TimerTimeout(timer) => {
                         info!("timer timeout: {}, {}", timer.timeout, timer.value);
                         timer::TIMER_MANAGER

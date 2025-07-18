@@ -53,6 +53,10 @@ fn main_inner() -> Status {
 
     // exit boot services
     info!("exiting boot services.");
+    info!("#############################");
+    info!("### KERNEL WILL BE CALLED ###");
+    info!("#############################");
+
     let memory_map = unsafe { boot::exit_boot_services(boot::MemoryType::RUNTIME_SERVICES_DATA) };
 
     let boot_info = BootInfo::new(graphic_info, memory_map, rsdp);
