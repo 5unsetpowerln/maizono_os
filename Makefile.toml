@@ -8,6 +8,7 @@ BUILD = "build"
 MOUNT_POINT_NAME = "mnt"
 DISK_IMAGE_NAME = "boot.img"
 OVMF_FILE_NAME = "OVMF_CODE.fd"
+RUST_TOOLCHAIN = ""
 
 [tasks.ignore-members]
 workspace = false
@@ -105,7 +106,7 @@ script = ["rm -rf ${BUILD}", "mkdir ${BUILD}", "cp ${OVMF_FILE_NAME} ${BUILD}"]
 description = "Build the bootloader and copy it to the build directory."
 script = [
     "cd ${BOOTLOADER_NAME}",
-    "cargo +nightly build --target x86_64-unknown-uefi",
+    "cargo build",
     "cd ..",
     "cp ./${BOOTLOADER_NAME}/target/x86_64-unknown-uefi/debug/${BOOTLOADER_NAME}.efi ${BUILD}/${BOOTLOADER_NAME}.efi",
 ]
@@ -114,7 +115,7 @@ script = [
 description = "Build the kernel and copy it to the build directory."
 script = [
     "cd ${KERNEL_NAME}",
-    "cargo +nightly build",
+    "cargo  build",
     "cd ..",
     "cp ./${KERNEL_NAME}/target/${KERNEL_BUILD_TARGET_NAME}/debug/${KERNEL_NAME}.elf ${BUILD}/${KERNEL_NAME}.elf",
 ]
@@ -122,7 +123,7 @@ script = [
 [tasks.build_bootloader_debug_full]
 script = [
     "cd ${BOOTLOADER_NAME}",
-    "RUSTFLAGS=\"-C debuginfo=2\" cargo +nightly build --target x86_64-unknown-uefi",
+    "RUSTFLAGS=\"-C debuginfo=2\" cargo build",
     "cd ..",
     "cp ./${BOOTLOADER_NAME}/target/x86_64-unknown-uefi/debug/${BOOTLOADER_NAME}.efi ${BUILD}/${BOOTLOADER_NAME}.efi",
 ]
@@ -130,7 +131,7 @@ script = [
 [tasks.build_kernel_debug_full]
 script = [
     "cd ${KERNEL_NAME}",
-    "RUSTFLAGS=\"-C debuginfo=2\" cargo +nightly build",
+    "RUSTFLAGS=\"-C debuginfo=2\" cargo build",
     "cd ..",
     "cp ./${KERNEL_NAME}/target/${KERNEL_BUILD_TARGET_NAME}/debug/${KERNEL_NAME}.elf ${BUILD}/${KERNEL_NAME}.elf",
 ]

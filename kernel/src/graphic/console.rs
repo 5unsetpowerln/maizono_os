@@ -6,12 +6,13 @@ use core::{
 };
 
 use alloc::sync::Arc;
+use ascii::Char;
 use common::graphic::{RgbColor, rgb};
-use glam::{U64Vec2, U64Vec4, u64vec2, u64vec4};
+use glam::u64vec2;
 use spin::{Mutex, Once};
 use thiserror_no_std::Error;
 
-use crate::{allocator::Locked, error::Result, graphic::canvas::Canvas};
+use crate::{allocator::Locked, error::Result, graphic::canvas::Canvas, serial_println};
 
 use super::{
     PixelWriter,
@@ -37,32 +38,32 @@ pub enum ConsoleError {
 #[derive(Debug, Clone, Copy)]
 pub struct Line<const CAP: usize> {
     chars: [ascii::Char; CAP],
-    length: usize,
+    cursor: usize,
 }
 
 impl<const CAP: usize> Line<CAP> {
-    pub fn new(chars: [ascii::Char; CAP], length: usize) -> Result<Self> {
-        if length > CAP {
-            return Err(ConsoleError::LineLengthOverflow.into());
-        }
+    // pub fn new(chars: [ascii::Char; CAP], length: usize) -> Result<Self> {
+    //     if length > CAP {
+    //         return Err(ConsoleError::LineLengthOverflow.into());
+    //     }
 
-        return Ok(Self { chars, length });
-    }
+    //     return Ok(Self { chars, length });
+    // }
 
     pub const fn null() -> Self {
         Self {
             chars: [ascii::Char::from_u8(0).unwrap(); CAP],
-            length: 0,
+            cursor: 0,
         }
     }
 
     pub fn push(&mut self, char: ascii::Char) -> Result<()> {
-        if self.length == CAP {
+        if self.cursor >= CAP {
             return Err(ConsoleError::LineLengthOverflow.into());
         }
 
-        self.chars[self.length] = char;
-        self.length += 1;
+        self.chars[self.cursor] = char;
+        self.cursor += 1;
 
         Ok(())
     }
@@ -122,8 +123,6 @@ impl Console {
     }
 
     fn new_line(&mut self) {
-        let canvas = unsafe { &*self.canvas.as_ptr() };
-
         self.cursor_column = 0;
         if self.cursor_row < ROWS as u64 - 1 {
             self.cursor_row += 1;
@@ -134,8 +133,10 @@ impl Console {
                 (HEIGHT - CHARACTER_HEIGHT) as u64,
             );
 
-            canvas.lock().move_rect(u64vec2(0, 0), move_src_rect);
-            canvas
+            self.get_writer()
+                .lock()
+                .move_rect(u64vec2(0, 0), move_src_rect);
+            self.get_writer()
                 .lock()
                 .fill_rect(
                     u64vec2(0, (CHARACTER_HEIGHT * (ROWS - 1)) as u64),
@@ -148,28 +149,101 @@ impl Console {
         }
     }
 
-    fn print(&mut self, s: &str) {
-        for c in s.as_ascii().expect("Non ascii character is given.") {
-            if *c == ascii::Char::LineFeed {
-                self.new_line()
-            } else if self.cursor_column < COLUMNS as u64 - 1 {
-                let writer = unsafe { &*self.canvas.as_ptr() };
+    fn backspace(&mut self) {
+        if self.cursor_column == 0 {
+            if self.cursor_row != 0 {
+                self.cursor_row -= 1;
+                self.buffer[self.cursor_row as usize].cursor -= 1;
+                self.cursor_column = self.buffer[self.cursor_row as usize].cursor as u64;
+            }
+        } else {
+            self.cursor_column -= 1;
+            serial_println!("{}", self.buffer[self.cursor_row as usize].cursor);
+            self.buffer[self.cursor_row as usize].cursor -= 1;
+        }
 
-                writer
-                    .lock()
-                    .write_char(
-                        u64vec2(
-                            font::CHARACTER_WIDTH as u64 * self.cursor_column,
-                            font::CHARACTER_HEIGHT as u64 * self.cursor_row,
-                        ),
-                        *c,
-                        self.fg_color,
-                    )
-                    .unwrap();
-                self.buffer[self.cursor_row as usize].push(*c).unwrap();
-                self.cursor_column += 1;
+        self.get_writer()
+            .lock()
+            .fill_rect(
+                u64vec2(
+                    font::CHARACTER_WIDTH as u64 * self.cursor_column,
+                    font::CHARACTER_HEIGHT as u64 * self.cursor_row,
+                ),
+                font::CHARACTER_WIDTH as u64,
+                font::CHARACTER_HEIGHT as u64,
+                self.bg_color,
+            )
+            .unwrap();
+    }
+
+    fn get_writer<'a>(&mut self) -> &'a Arc<Mutex<Canvas>> {
+        (unsafe { &*self.canvas.as_ptr() }) as _
+    }
+
+    fn print_char(&mut self, c: Char) {
+        self.get_writer()
+            .lock()
+            .write_char(
+                u64vec2(
+                    font::CHARACTER_WIDTH as u64 * self.cursor_column,
+                    font::CHARACTER_HEIGHT as u64 * self.cursor_row,
+                ),
+                c,
+                self.fg_color,
+            )
+            .unwrap();
+
+        self.buffer[self.cursor_row as usize].push(c).unwrap();
+
+        if self.cursor_column == COLUMNS as u64 - 1 {
+            self.new_line()
+        } else {
+            self.cursor_column += 1;
+        }
+    }
+
+    fn print_cursor(&mut self) {
+        self.get_writer()
+            .lock()
+            .fill_rect(
+                u64vec2(
+                    self.cursor_column * CHARACTER_WIDTH as u64,
+                    self.cursor_row * CHARACTER_HEIGHT as u64,
+                ),
+                CHARACTER_WIDTH as u64 / 4,
+                CHARACTER_HEIGHT as u64,
+                self.fg_color,
+            )
+            .unwrap();
+    }
+
+    fn erase_cursor(&mut self) {
+        self.get_writer()
+            .lock()
+            .fill_rect(
+                u64vec2(
+                    self.cursor_column * CHARACTER_WIDTH as u64,
+                    self.cursor_row * CHARACTER_HEIGHT as u64,
+                ),
+                CHARACTER_WIDTH as u64 / 4,
+                CHARACTER_HEIGHT as u64,
+                self.bg_color,
+            )
+            .unwrap();
+    }
+
+    fn print(&mut self, s: &str) {
+        self.erase_cursor();
+        for c in s.as_ascii().expect("Non ascii character is given.") {
+            match *c {
+                Char::LineFeed => self.new_line(),
+                Char::Backspace => self.backspace(),
+                _ => {
+                    self.print_char(*c);
+                }
             }
         }
+        self.print_cursor();
     }
 }
 
