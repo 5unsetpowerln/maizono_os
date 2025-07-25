@@ -60,7 +60,6 @@ impl Canvas {
                         frame_buffer
                             .write_pixel(pos + u64vec2(x, y), c)
                             .expect("Failed to write a pixel to the frame buffer.");
-                    } else {
                     }
                 }
             }

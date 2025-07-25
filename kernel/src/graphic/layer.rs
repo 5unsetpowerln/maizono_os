@@ -7,10 +7,13 @@ use log::debug;
 use slotmap::SlotMap;
 use spin::{Lazy, Mutex};
 
-use crate::graphic::{
-    PixelWriter, PixelWriterCopyable,
-    canvas::Canvas,
-    frame_buffer::{self, FRAME_BUFFER_HEIGHT, FRAME_BUFFER_WIDTH, FrameBuffer},
+use crate::{
+    graphic::{
+        PixelWriter, PixelWriterCopyable,
+        canvas::Canvas,
+        frame_buffer::{self, FRAME_BUFFER_HEIGHT, FRAME_BUFFER_WIDTH, FrameBuffer},
+    },
+    serial, serial_println,
 };
 
 pub struct Layer {
@@ -141,8 +144,8 @@ impl LayerManager {
     }
 
     pub fn draw(&mut self) {
-        for layer in self.layer_stack.iter() {
-            self.layers[*layer].draw_to(&mut self.back_buffer);
+        for key in self.layer_stack.iter() {
+            self.layers[*key].draw_to(&mut self.back_buffer);
         }
 
         let frame_buffer = unsafe { &*self.frame_buffer.as_ptr() };
@@ -171,9 +174,9 @@ impl LayerManager {
         unsafe { frame_buffer.lock().copy(u64vec2(0, 0), &self.back_buffer) };
     }
 
-    fn hide(&mut self, id: usize) {
-        self.layer_stack.retain(|key| self.layers[*key].id == id);
-    }
+    // fn hide(&mut self, id: usize) {
+    //     self.layer_stack.retain(|key| self.layers[*key].id == id);
+    // }
 
     pub fn up_or_down(&mut self, id: usize, new_height: usize) {
         let mut local_new_height = new_height;

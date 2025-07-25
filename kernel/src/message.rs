@@ -2,6 +2,7 @@ use spin::Mutex;
 
 use crate::{device::ps2::keyboard::KeyboardError, timer::Timer, types::Queue};
 
+#[derive(Debug)]
 pub enum Message {
     PS2MouseInterrupt,
     PS2KeyboardInterrupt(Result<u8, KeyboardError>),
