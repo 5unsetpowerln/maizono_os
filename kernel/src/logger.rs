@@ -1,3 +1,4 @@
+use alloc::string::ToString;
 use alloc::{format, string::String};
 use log::LevelFilter;
 
@@ -23,7 +24,7 @@ impl log::Log for Logger {
                 let l = record.line().unwrap();
                 format!("{}@{}: ", s, l)
             } else {
-                format!("???@???: ")
+                "???@???: ".to_string()
             };
 
             let content_msg = format!("{}", record.args());

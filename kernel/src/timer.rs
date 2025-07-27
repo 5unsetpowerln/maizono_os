@@ -9,13 +9,14 @@ use crate::{
     acpi,
     interrupts::{self, LAPIC},
     message::{self, Message},
+    task::{TASK_TIMER_PERIOD, switch_task},
 };
 
 const INITIAL_COUNT: u32 = 0x1000000;
 
 pub static TIMER_MANAGER: Mutex<TimerManager> = Mutex::new(TimerManager::new());
 pub static LAPIC_TIMER_FREQ: Once<u32> = Once::new();
-const TIMER_FREQ: u32 = 100;
+pub const TIMER_FREQ: u32 = 100;
 
 pub struct TimerManager {
     tick: u64,
@@ -30,7 +31,7 @@ impl TimerManager {
         }
     }
 
-    pub fn increment_tick(&mut self) {
+    pub fn increment_tick(&mut self) -> bool {
         // self.tick++
         let current_tick = self.tick;
         let tick_ptr = &mut self.tick as *mut u64;
@@ -39,6 +40,8 @@ impl TimerManager {
             tick_ptr.write_volatile(current_tick + 1);
         }
 
+        let mut is_preemptive_multitask_timeout = false;
+
         // timeout process
         while let Some(top_timer) = self.timers.peek() {
             if top_timer.timeout > self.tick {
@@ -46,9 +49,23 @@ impl TimerManager {
             }
 
             let timer = self.timers.pop().unwrap();
+
+            if let TimerKind::PreemptiveMultitask = timer.kind {
+                is_preemptive_multitask_timeout = true;
+
+                self.add_timer(Timer::new(
+                    TASK_TIMER_PERIOD + timer.timeout,
+                    TimerKind::PreemptiveMultitask,
+                ));
+
+                continue;
+            }
+
             let message = Message::TimerTimeout(timer);
             message::enqueue(message);
         }
+
+        is_preemptive_multitask_timeout
     }
 
     pub fn get_current_tick(&self) -> u64 {
@@ -63,23 +80,20 @@ impl TimerManager {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Timer {
     pub timeout: u64,
-    pub value: i64,
+    pub kind: TimerKind,
 }
 
 impl Timer {
-    pub fn new(timeout: u64, value: i64) -> Self {
-        Self { timeout, value }
+    pub fn new(timeout: u64, kind: TimerKind) -> Self {
+        Self { timeout, kind }
     }
+}
 
-    #[inline]
-    pub fn get_timeout(&self) -> u64 {
-        self.timeout
-    }
-
-    #[inline]
-    pub fn get_value(&self) -> i64 {
-        self.value
-    }
+#[repr(u32)]
+#[derive(Debug, PartialEq, Eq)]
+pub enum TimerKind {
+    PreemptiveMultitask = 0,
+    Other = 1,
 }
 
 impl Ord for Timer {
@@ -136,6 +150,10 @@ pub fn init_lagic_timer() {
 static TEST_COUNTER: Mutex<u64> = Mutex::new(0);
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     message::enqueue(Message::LocalAPICTimerInterrupt);
-    TIMER_MANAGER.lock().increment_tick();
+    let is_preemptive_multitask_timeout = TIMER_MANAGER.lock().increment_tick();
     interrupts::notify_end_of_interrupt();
+
+    if is_preemptive_multitask_timeout {
+        switch_task();
+    }
 }

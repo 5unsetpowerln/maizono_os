@@ -6,6 +6,11 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[profile.dev]
+# trueにすると、GDBが必要とする完全なデバッグ情報が含まれます
+debug = true
+lto = false
+
 [dependencies]
 thiserror-no-std = "2.0.2"
 common = { path = "../common" }
