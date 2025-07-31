@@ -11,6 +11,7 @@ use common::graphic::{RgbColor, rgb};
 use glam::u64vec2;
 use spin::{Mutex, Once};
 use thiserror_no_std::Error;
+use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{allocator::Locked, error::Result, graphic::canvas::Canvas, serial_println};
 
@@ -262,11 +263,20 @@ pub fn get_console_reference() -> &'static Locked<Console> {
     &CONSOLE
 }
 
+pub fn _print(args: ::core::fmt::Arguments) {
+    use core::fmt::Write;
+    without_interrupts(|| {
+        get_console_reference()
+            .lock()
+            .write_fmt(args)
+            .expect("Failed to print string to console.");
+    });
+}
+
 #[macro_export]
 macro_rules! kprint {
     ($($arg:tt)*) => {{
-        use core::fmt::Write;
-        crate::graphic::console::get_console_reference().lock().write_fmt(format_args!($($arg)*)).unwrap();
+        crate::graphic::console::_print(format_args!($($arg)*));
     }};
 }
 

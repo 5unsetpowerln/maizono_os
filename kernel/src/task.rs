@@ -6,7 +6,8 @@ use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
 
-pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 2;
+// pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 2;
+pub const TASK_TIMER_PERIOD: u64 = TIMER_FREQ as u64;
 
 pub fn init() {
     without_interrupts(|| {

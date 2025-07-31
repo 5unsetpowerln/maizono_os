@@ -8,7 +8,6 @@ pub static SERIAL1: Lazy<Mutex<SerialPort>> = Lazy::new(|| {
     Mutex::new(serial_port)
 });
 
-#[doc(hidden)]
 pub fn _print(args: ::core::fmt::Arguments) {
     use core::fmt::Write;
     without_interrupts(|| {
