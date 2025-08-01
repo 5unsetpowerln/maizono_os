@@ -52,8 +52,6 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::graphic::{create_canvas_and_layer, layer};
 use task::TaskManagerTrait;
 
-use self::message::Message;
-
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
 #[repr(align(16))]
@@ -158,16 +156,18 @@ fn main(boot_info: &BootInfo) -> ! {
 
     unsafe { acpi::init(boot_info.rsdp) };
 
+    without_interrupts(|| {
+        interrupts::init();
+
+        timer::init_lagic_timer();
+        task::init();
+    });
     ps2::init(true, false);
-    x86_64::instructions::interrupts::disable();
-    interrupts::init();
-    x86_64::instructions::interrupts::enable();
 
-    timer::init_lagic_timer();
-
-    task::init();
-    let task_b_id = without_interrupts(|| {
+    let (task_b_id, _main_task_id) = without_interrupts(|| {
         let mut task_manager = task::TASK_MANAGER.wait().lock();
+
+        let main_task_id = task_manager.get_current_task_id();
 
         let task_b_id = task_manager.new_task().init_context(task_b, 45).get_id();
         task_manager
@@ -184,7 +184,7 @@ fn main(boot_info: &BootInfo) -> ! {
             .get_id();
         task_manager.wakeup(id).expect("Failed to wakeup a task.");
 
-        task_b_id
+        (task_b_id, main_task_id)
     });
 
     #[cfg(test)]
@@ -192,54 +192,59 @@ fn main(boot_info: &BootInfo) -> ! {
 
     loop {
         layer::LAYER_MANAGER.lock().draw();
-        if message::count() > 0 {
-            let mut message_opt: Option<Message> = None;
 
-            x86_64::instructions::interrupts::without_interrupts(|| {
-                message_opt = message::QUEUE.lock().pop_front();
-            });
+        x86_64::instructions::interrupts::disable();
+        let message_opt = task::TASK_MANAGER
+            .wait()
+            .lock()
+            .receive_message_from_task(1)
+            .expect("Failed to get a message of main task.");
 
-            if let Some(message) = message_opt {
-                match message {
-                    message::Message::PS2KeyboardInterrupt(result) => {
-                        if let Ok(scancode) = result {
-                            if let Some(key_code) = ps2::read_key_event(scancode) {
-                                match key_code {
-                                    DecodedKey::Unicode(character) => {
-                                        if character == 's' {
-                                            without_interrupts(|| {
-                                                task::TASK_MANAGER
-                                                    .wait()
-                                                    .sleep(task_b_id)
-                                                    .expect("Failed to sleep a task.");
-                                            });
-                                        } else if character == 'w' {
-                                            let mut task_manager = task::TASK_MANAGER.wait().lock();
-                                            task_manager
-                                                .wakeup(task_b_id)
-                                                .expect("Failed to wakeup a task.");
-                                        }
-                                    }
-                                    _ => {} // DecodedKey::Unicode(character) => kprint!("{}", character),
-                                            // DecodedKey::RawKey(key) => kprint!("{:?}", key),
-                                }
+        if let Some(message) = message_opt {
+            x86_64::instructions::interrupts::enable();
+            match message {
+                message::Message::PS2KeyboardInterrupt(result) => {
+                    if let Ok(scancode) = result {
+                        if let Some(key_code) = ps2::read_key_event(scancode) {
+                            match key_code {
+                                // DecodedKey::Unicode(character) => {
+                                //     if character == 's' {
+                                //         without_interrupts(|| {
+                                //             task::TASK_MANAGER
+                                //                 .wait()
+                                //                 .sleep(task_b_id)
+                                //                 .expect("Failed to sleep a task.");
+                                //         });
+                                //     } else if character == 'w' {
+                                //         let mut task_manager = task::TASK_MANAGER.wait().lock();
+                                //         task_manager
+                                //             .wakeup(task_b_id)
+                                //             .expect("Failed to wakeup a task.");
+                                //     }
+                                // }
+                                // _ => {}
+                                DecodedKey::Unicode(character) => kprint!("{}", character),
+                                DecodedKey::RawKey(key) => kprint!("{:?}", key),
                             }
                         }
                     }
-                    message::Message::LocalAPICTimerInterrupt => {}
-                    message::Message::TimerTimeout(timer) => {
-                        info!("timeout: ({:?}, {})", timer.kind, timer.timeout);
-                    }
-                    message::Message::PS2MouseInterrupt => {
-                        error!("PS2 mouse is disabled but the interrupt occured.");
-                    }
+                }
+                message::Message::LocalAPICTimerInterrupt => {}
+                message::Message::TimerTimeout(timer) => {
+                    info!("timeout: ({:?}, {})", timer.kind, timer.timeout);
+                }
+                message::Message::PS2MouseInterrupt => {
+                    error!("PS2 mouse is disabled but the interrupt occured.");
                 }
             }
         } else {
-            info!("main task");
-            unsafe {
-                asm!("hlt");
-            }
+            task::TASK_MANAGER
+                .wait()
+                .sleep(1)
+                .expect("Failed to sleep main task.");
+
+            x86_64::instructions::interrupts::enable();
+            continue;
         }
     }
 }

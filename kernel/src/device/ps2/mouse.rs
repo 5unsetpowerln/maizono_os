@@ -5,7 +5,7 @@ use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::{
     device::ps2::{InterpretableResponse, Response},
-    interrupts, message, mouse,
+    interrupts, message, mouse, task,
 };
 
 use super::controller::{Controller, ControllerError};
@@ -196,8 +196,11 @@ impl Mouse {
 }
 
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
-    message::QUEUE
+    task::TASK_MANAGER
+        .wait()
         .lock()
-        .push_back(message::Message::PS2MouseInterrupt);
+        .send_message_to_task(1, &message::Message::PS2MouseInterrupt)
+        .expect("Failed to send a message to main task.");
+
     interrupts::notify_end_of_interrupt();
 }

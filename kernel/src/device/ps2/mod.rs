@@ -149,14 +149,14 @@ pub fn init(_keyboard_enabled: bool, mouse_enabled: bool) {
     MOUSE.call_once(|| Mutex::new(mouse));
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Response {
     Interpretable(InterpretableResponse),
     Other(u8),
 }
 
 #[repr(u8)]
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive, Clone, Copy)]
 pub enum InterpretableResponse {
     // Key detection error or internal buffer overrun
     InternalBufferOverrun = 0x00,

@@ -2,7 +2,7 @@ use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::{
     device::ps2::{self, InterpretableResponse, KEYBOARD_CONTROLLER, Response, read_key_event},
-    interrupts, kprint, message,
+    interrupts, kprint, message, task,
 };
 
 use super::controller::{Controller, ControllerError};
@@ -11,7 +11,7 @@ use super::controller::{Controller, ControllerError};
 
 type Result<T> = core::result::Result<T, KeyboardError>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum KeyboardError {
     ControllerError(ControllerError),
     CommandNotAcknowledged(Response),
@@ -165,8 +165,10 @@ impl Keyboard {
 
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     let result = unsafe { ps2::KEYBOARD_CONTROLLER.wait().lock().read_data() };
-    message::QUEUE
+    task::TASK_MANAGER
+        .wait()
         .lock()
-        .push_back(message::Message::PS2KeyboardInterrupt(result));
+        .send_message_to_task(1, &message::Message::PS2KeyboardInterrupt(result))
+        .expect("Failed to send a message to main task.");
     interrupts::notify_end_of_interrupt();
 }

@@ -5,11 +5,11 @@ use log::debug;
 use spin::{Mutex, Once};
 use x86_64::structures::idt::InterruptStackFrame;
 
-use crate::task::{TASK_MANAGER, TaskManager, switch_context};
+use crate::task::TASK_MANAGER;
 use crate::{
     acpi,
     interrupts::{self, LAPIC},
-    message::{self, Message},
+    message::Message,
     task::{self, TASK_TIMER_PERIOD},
 };
 use task::TaskManagerTrait;
@@ -64,7 +64,11 @@ impl TimerManager {
             }
 
             let message = Message::TimerTimeout(timer);
-            message::QUEUE.lock().push_back(message);
+            task::TASK_MANAGER
+                .wait()
+                .lock()
+                .send_message_to_task(1, &message)
+                .expect("Failed to send a message to main task.");
         }
 
         is_preemptive_multitask_timeout
@@ -79,7 +83,7 @@ impl TimerManager {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Timer {
     pub timeout: u64,
     pub kind: TimerKind,
@@ -92,7 +96,7 @@ impl Timer {
 }
 
 #[repr(u32)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum TimerKind {
     PreemptiveMultitask = 0,
     Other = 1,
@@ -150,13 +154,13 @@ pub fn init_lagic_timer() {
 // }
 
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
-    message::QUEUE
+    task::TASK_MANAGER
+        .wait()
         .lock()
-        .push_back(Message::LocalAPICTimerInterrupt);
-    let is_preemptive_multitask_timeout = TIMER_MANAGER.lock().increment_tick();
+        .send_message_to_task(1, &Message::LocalAPICTimerInterrupt)
+        .expect("Failed to send a message to main task.");
 
-    // if is_preemptive_multitask_timeout {
-    // }
+    let is_preemptive_multitask_timeout = TIMER_MANAGER.lock().increment_tick();
 
     interrupts::notify_end_of_interrupt();
 

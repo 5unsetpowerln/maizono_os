@@ -7,7 +7,7 @@ type Result<T> = core::result::Result<T, ControllerError>;
 
 pub(crate) const LOOP_TIMEOUT: usize = 1000000;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum ControllerError {
     Timeout,
     TestFailed,

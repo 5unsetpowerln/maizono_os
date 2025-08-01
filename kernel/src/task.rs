@@ -7,6 +7,7 @@ use spin::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::allocator::Locked;
+use crate::message::Message;
 use crate::segment::{KERNEL_CS, KERNEL_SS};
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
 use crate::util::read_cr3_raw;
@@ -182,6 +183,7 @@ pub struct Task {
     id: u64,
     stack: Vec<u64>,
     context: TaskContext,
+    messages: VecDeque<Message>,
 }
 
 impl Task {
@@ -191,6 +193,7 @@ impl Task {
             id,
             stack: Vec::new(),
             context: TaskContext::zero(),
+            messages: VecDeque::new(),
         }
     }
 
@@ -261,6 +264,12 @@ impl TaskManager {
         Err(Error::TaskNotFound)
     }
 
+    pub fn get_current_task_id(&self) -> u64 {
+        let key = self.running.front().unwrap();
+        let task = self.tasks.get(*key).unwrap();
+        task.id
+    }
+
     pub fn new_task(&mut self) -> &mut Task {
         self.latest_id += 1;
         let key = self.tasks.insert(Task::new(self.latest_id));
@@ -276,7 +285,30 @@ impl TaskManager {
     pub fn wakeup(&mut self, id: u64) -> Result<()> {
         if let Some((key, _)) = self.tasks.iter().find(|(_, t)| t.id == id) {
             self.wakeup_by_key(key);
-            return Ok(());
+        } else {
+            return Err(Error::TaskNotFound);
+        }
+        Ok(())
+    }
+
+    pub fn send_message_to_task(&mut self, id: u64, message: &Message) -> Result<()> {
+        if let Some((key, task)) = self.tasks.iter_mut().find(|(_, t)| t.id == id) {
+            task.messages.push_back(*message);
+            self.wakeup_by_key(key);
+        } else {
+            return Err(Error::TaskNotFound);
+        }
+
+        Ok(())
+    }
+
+    pub fn receive_message_from_task(&mut self, id: u64) -> Result<Option<Message>> {
+        if let Some((_key, task)) = self.tasks.iter_mut().find(|(_, t)| t.id == id) {
+            if task.messages.is_empty() {
+                return Ok(None);
+            }
+
+            return Ok(task.messages.pop_front());
         }
 
         Err(Error::TaskNotFound)
