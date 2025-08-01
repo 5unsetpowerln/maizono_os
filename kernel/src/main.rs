@@ -33,11 +33,9 @@ mod timer;
 mod types;
 mod util;
 
-use core::arch::naked_asm;
+use core::arch::asm;
 use core::panic::PanicInfo;
-use core::{arch::asm, ptr::null_mut};
 
-use alloc::vec;
 use common::boot::BootInfo;
 use common::graphic::rgb;
 use device::ps2::{self};
@@ -49,13 +47,12 @@ use graphic::{
 };
 use log::{debug, error, info};
 use pc_keyboard::DecodedKey;
-use spin::mutex::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::graphic::{create_canvas_and_layer, layer};
+use task::TaskManagerTrait;
 
 use self::message::Message;
-use self::task::TaskManager;
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -114,8 +111,8 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
         .lock()
         .fill_rect(
             u64vec2(0, 0),
-            frame_buffer::FRAME_BUFFER_WIDTH.wait().clone() as u64,
-            frame_buffer::FRAME_BUFFER_HEIGHT.wait().clone() as u64,
+            *frame_buffer::FRAME_BUFFER_WIDTH.wait() as u64,
+            *frame_buffer::FRAME_BUFFER_HEIGHT.wait() as u64,
             rgb(0x42484e),
         )
         .unwrap();
@@ -169,12 +166,25 @@ fn main(boot_info: &BootInfo) -> ! {
     timer::init_lagic_timer();
 
     task::init();
-    without_interrupts(|| {
+    let task_b_id = without_interrupts(|| {
         let mut task_manager = task::TASK_MANAGER.wait().lock();
 
-        task_manager.new_task().init_context(task_b, 45);
-        task_manager.new_task().init_context(task_idle, 0xdeadbeef);
-        task_manager.new_task().init_context(task_idle, 0xcafebabe);
+        let task_b_id = task_manager.new_task().init_context(task_b, 45).get_id();
+        task_manager
+            .wakeup(task_b_id)
+            .expect("Failed to wakeup a task.");
+        let id = task_manager
+            .new_task()
+            .init_context(task_idle, 0xdeadbeef)
+            .get_id();
+        task_manager.wakeup(id).expect("Failed to wakeup a task.");
+        let id = task_manager
+            .new_task()
+            .init_context(task_idle, 0xcafebabe)
+            .get_id();
+        task_manager.wakeup(id).expect("Failed to wakeup a task.");
+
+        task_b_id
     });
 
     #[cfg(test)]
@@ -186,7 +196,7 @@ fn main(boot_info: &BootInfo) -> ! {
             let mut message_opt: Option<Message> = None;
 
             x86_64::instructions::interrupts::without_interrupts(|| {
-                message_opt = message::QUEUE.lock().dequeue();
+                message_opt = message::QUEUE.lock().pop_front();
             });
 
             if let Some(message) = message_opt {
@@ -195,8 +205,23 @@ fn main(boot_info: &BootInfo) -> ! {
                         if let Ok(scancode) = result {
                             if let Some(key_code) = ps2::read_key_event(scancode) {
                                 match key_code {
-                                    DecodedKey::Unicode(character) => kprint!("{}", character),
-                                    DecodedKey::RawKey(key) => kprint!("{:?}", key),
+                                    DecodedKey::Unicode(character) => {
+                                        if character == 's' {
+                                            without_interrupts(|| {
+                                                task::TASK_MANAGER
+                                                    .wait()
+                                                    .sleep(task_b_id)
+                                                    .expect("Failed to sleep a task.");
+                                            });
+                                        } else if character == 'w' {
+                                            let mut task_manager = task::TASK_MANAGER.wait().lock();
+                                            task_manager
+                                                .wakeup(task_b_id)
+                                                .expect("Failed to wakeup a task.");
+                                        }
+                                    }
+                                    _ => {} // DecodedKey::Unicode(character) => kprint!("{}", character),
+                                            // DecodedKey::RawKey(key) => kprint!("{:?}", key),
                                 }
                             }
                         }

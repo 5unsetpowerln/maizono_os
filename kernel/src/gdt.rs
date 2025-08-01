@@ -2,9 +2,9 @@ use core::arch::asm;
 
 use spin::{Lazy, Mutex, MutexGuard};
 use x86_64::{
-    registers::segmentation::{Segment, CS, DS, ES, FS, GS, SS},
-    structures::gdt::SegmentSelector,
     PrivilegeLevel::Ring0,
+    registers::segmentation::{CS, DS, ES, FS, GS, SS, Segment},
+    structures::gdt::SegmentSelector,
 };
 
 type Gdt = [SegmentDescriptor; 3];

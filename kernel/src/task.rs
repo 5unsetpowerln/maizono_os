@@ -1,23 +1,21 @@
 use core::arch::naked_asm;
-use core::mem::MaybeUninit;
-use core::ptr::{null, null_mut};
 
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use log::debug;
+use slotmap::{DefaultKey, SlotMap};
 use spin::Once;
-use spin::mutex::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
+use crate::allocator::Locked;
 use crate::segment::{KERNEL_CS, KERNEL_SS};
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
 use crate::util::read_cr3_raw;
 
 pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 2;
-// pub const TASK_TIMER_PERIOD: u64 = TIMER_FREQ as u64;
-pub static TASK_MANAGER: Once<Mutex<TaskManager>> = Once::new();
+pub static TASK_MANAGER: Once<Locked<TaskManager>> = Once::new();
 
 pub fn init() {
-    TASK_MANAGER.call_once(|| Mutex::new(TaskManager::new()));
+    TASK_MANAGER.call_once(|| Locked::new(TaskManager::new()));
 
     without_interrupts(|| {
         let mut timer_manager = timer::TIMER_MANAGER.lock();
@@ -196,7 +194,7 @@ impl Task {
         }
     }
 
-    pub fn init_context(&mut self, f: TaskFunc, data: u64) {
+    pub fn init_context(&mut self, f: TaskFunc, data: u64) -> &mut Self {
         let stack_size = self.stack_size / size_of::<u64>() as u64;
         self.stack.resize(stack_size as usize, 0);
 
@@ -216,58 +214,150 @@ impl Task {
             let mut ptr = &self.context.0.fxsave_area[24] as *const u8 as *mut u32;
             *ptr = 0x1f80;
         }
+
+        self
     }
 
     pub fn get_context<'a>(&'a self) -> &'a TaskContext {
         &self.context
     }
+
+    pub fn get_context_mut<'a>(&'a mut self) -> &'a mut TaskContext {
+        &mut self.context
+    }
+
+    pub fn get_id(&self) -> u64 {
+        self.id
+    }
 }
 
 #[derive(Debug)]
 pub struct TaskManager {
-    tasks: Vec<Task>,
     latest_id: u64 = 0,
-    current_task_index: usize,
+    tasks: SlotMap<slotmap::DefaultKey, Task>,
+    running: VecDeque<slotmap::DefaultKey>
 }
 
 impl TaskManager {
     pub fn new() -> Self {
         let mut self_ = Self {
-            tasks: Vec::new(),
+            tasks: SlotMap::new(),
             latest_id: 0,
-            current_task_index: 0,
+            running: VecDeque::new(),
         };
         self_.new_task();
+
+        let key = self_.get_key_from_id(self_.latest_id).unwrap();
+        self_.running.push_back(key);
+
         self_
+    }
+
+    pub fn get_key_from_id(&self, id: u64) -> Result<DefaultKey> {
+        if let Some((key, _)) = self.tasks.iter().find(|(_, t)| t.id == 1) {
+            return Ok(key);
+        }
+
+        Err(Error::TaskNotFound)
     }
 
     pub fn new_task(&mut self) -> &mut Task {
         self.latest_id += 1;
-        self.tasks.push(Task::new(self.latest_id));
-        let last_index = self.tasks.len() - 1;
-        &mut self.tasks[last_index]
+        let key = self.tasks.insert(Task::new(self.latest_id));
+        self.tasks.get_mut(key).unwrap()
     }
 
-    pub fn get_contexts_for_task_switching(&mut self) -> (*const TaskContext, *mut TaskContext) {
-        // pub fn switch_task(&mut self) {
-        // pub fn switch_task(self: Mutex<Self>) {
-        let mut next_task_index = self.current_task_index + 1;
-        if next_task_index >= self.tasks.len() {
-            next_task_index = 0;
+    fn wakeup_by_key(&mut self, key: DefaultKey) {
+        if !self.running.iter().any(|x| *x == key) {
+            self.running.push_back(key);
+        }
+    }
+
+    pub fn wakeup(&mut self, id: u64) -> Result<()> {
+        if let Some((key, _)) = self.tasks.iter().find(|(_, t)| t.id == id) {
+            self.wakeup_by_key(key);
+            return Ok(());
         }
 
-        let current_context = self.tasks[self.current_task_index].get_context()
-            as *const TaskContext as *mut TaskContext;
-        let next_context = self.tasks[next_task_index].get_context() as *const TaskContext;
-        self.current_task_index = next_task_index;
-
-        (next_context, current_context)
-        // debug!(
-        //     "switching task... next_context: {next_context:?}, current_context: {current_context:?}"
-        // );
-        // core::mem::drop(*self);
-        // unsafe {
-        //     switch_context(next_context, current_context);
-        // }
+        Err(Error::TaskNotFound)
     }
+}
+
+pub trait TaskManagerTrait {
+    fn switch_task(&self, current_sleep: bool);
+    fn sleep_by_key(&self, key: DefaultKey);
+    fn sleep(&self, id: u64) -> Result<()>;
+}
+
+impl TaskManagerTrait for Locked<TaskManager> {
+    fn switch_task(&self, current_sleep: bool) {
+        let mut self_ = self.lock();
+
+        let current_task_key = self_.running.pop_front().unwrap();
+
+        if !current_sleep {
+            self_.running.push_back(current_task_key);
+        }
+
+        let next_task_key = self_.running.front().unwrap();
+
+        let current_context = self_.tasks.get(current_task_key).unwrap().get_context()
+            as *const TaskContext as *mut TaskContext;
+        let next_context =
+            self_.tasks.get(*next_task_key).unwrap().get_context() as *const TaskContext;
+
+        core::mem::drop(self_);
+
+        unsafe {
+            switch_context(next_context, current_context);
+        }
+    }
+
+    fn sleep_by_key(&self, key: DefaultKey) {
+        let mut self_ = self.lock();
+
+        let mut index = None;
+
+        for (i, k) in self_.running.iter().enumerate() {
+            if *k == key {
+                index.replace(i);
+                break;
+            }
+        }
+
+        if index.is_none() {
+            return;
+        }
+
+        if index == Some(0) {
+            core::mem::drop(self_);
+            self.switch_task(true);
+            return;
+        }
+
+        self_.running.remove(index.unwrap());
+    }
+
+    fn sleep(&self, id: u64) -> Result<()> {
+        let self_ = self.lock();
+
+        let key = if let Some((k, _)) = self_.tasks.iter().find(|(_, t)| t.id == id) {
+            k
+        } else {
+            return Err(Error::TaskNotFound);
+        };
+
+        core::mem::drop(self_);
+
+        self.sleep_by_key(key);
+
+        Ok(())
+    }
+}
+
+type Result<T> = core::result::Result<T, Error>;
+
+#[derive(Debug)]
+pub enum Error {
+    TaskNotFound,
 }

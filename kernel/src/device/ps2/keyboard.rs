@@ -165,6 +165,8 @@ impl Keyboard {
 
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     let result = unsafe { ps2::KEYBOARD_CONTROLLER.wait().lock().read_data() };
-    message::enqueue(message::Message::PS2KeyboardInterrupt(result));
+    message::QUEUE
+        .lock()
+        .push_back(message::Message::PS2KeyboardInterrupt(result));
     interrupts::notify_end_of_interrupt();
 }

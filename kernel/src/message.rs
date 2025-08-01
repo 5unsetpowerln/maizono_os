@@ -1,6 +1,7 @@
+use alloc::collections::VecDeque;
 use spin::Mutex;
 
-use crate::{device::ps2::keyboard::KeyboardError, timer::Timer, types::Queue};
+use crate::{device::ps2::keyboard::KeyboardError, timer::Timer};
 
 #[derive(Debug)]
 pub enum Message {
@@ -10,12 +11,7 @@ pub enum Message {
     TimerTimeout(Timer),
 }
 
-pub static QUEUE: Mutex<Queue<Message>> = Mutex::new(Queue::new());
-
-pub fn enqueue(message: Message) {
-    let mut queue = QUEUE.lock();
-    queue.enqueue(message);
-}
+pub static QUEUE: Mutex<VecDeque<Message>> = Mutex::new(VecDeque::new());
 
 pub fn count() -> usize {
     x86_64::instructions::interrupts::disable();

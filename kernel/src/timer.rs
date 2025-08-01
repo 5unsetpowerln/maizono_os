@@ -12,6 +12,7 @@ use crate::{
     message::{self, Message},
     task::{self, TASK_TIMER_PERIOD},
 };
+use task::TaskManagerTrait;
 
 const INITIAL_COUNT: u32 = 0x1000000;
 
@@ -63,7 +64,7 @@ impl TimerManager {
             }
 
             let message = Message::TimerTimeout(timer);
-            message::enqueue(message);
+            message::QUEUE.lock().push_back(message);
         }
 
         is_preemptive_multitask_timeout
@@ -149,7 +150,9 @@ pub fn init_lagic_timer() {
 // }
 
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
-    message::enqueue(Message::LocalAPICTimerInterrupt);
+    message::QUEUE
+        .lock()
+        .push_back(Message::LocalAPICTimerInterrupt);
     let is_preemptive_multitask_timeout = TIMER_MANAGER.lock().increment_tick();
 
     // if is_preemptive_multitask_timeout {
@@ -158,13 +161,6 @@ pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFram
     interrupts::notify_end_of_interrupt();
 
     if is_preemptive_multitask_timeout {
-        let (next_ctx, current_ctx) = {
-            let mut task_manager = task::TASK_MANAGER.wait().lock();
-            task_manager.get_contexts_for_task_switching()
-        };
-
-        unsafe {
-            switch_context(next_ctx, current_ctx);
-        }
+        TASK_MANAGER.wait().switch_task(false);
     }
 }
