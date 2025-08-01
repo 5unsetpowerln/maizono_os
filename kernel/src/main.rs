@@ -8,6 +8,7 @@
 #![feature(ascii_char_variants)]
 #![feature(naked_functions)]
 #![feature(ptr_as_ref_unchecked)]
+#![feature(default_field_values)]
 extern crate alloc;
 
 mod acpi;
@@ -49,17 +50,12 @@ use graphic::{
 use log::{debug, error, info};
 use pc_keyboard::DecodedKey;
 use spin::mutex::Mutex;
-use timer::Timer;
+use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::graphic::layer::LAYER_MANAGER;
 use crate::graphic::{create_canvas_and_layer, layer};
 
-use self::task::{TASK_B_CTX, TaskContext};
-use self::{
-    message::Message,
-    segment::{KERNEL_CS, KERNEL_SS},
-    util::read_cr3_raw,
-};
+use self::message::Message;
+use self::task::TaskManager;
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -172,29 +168,14 @@ fn main(boot_info: &BootInfo) -> ! {
 
     timer::init_lagic_timer();
 
-    let task_b_stack = vec![0u64; 1024 * 128];
-    let task_b_stack_end =
-        &task_b_stack[1024 * 128 - 1] as *const u64 as u64 + size_of::<u64>() as u64;
-    {
-        let mut task_b_ctx = TASK_B_CTX.lock();
-        task_b_ctx.0.rip = task_b as *const fn(u32, u32) as u64;
-
-        task_b_ctx.0.rdi = 1;
-        task_b_ctx.0.rsi = 42;
-        task_b_ctx.0.cr3 = unsafe { read_cr3_raw() };
-
-        task_b_ctx.0.rflags = 0x202;
-        task_b_ctx.0.cs = KERNEL_CS;
-        task_b_ctx.0.ss = KERNEL_SS;
-        task_b_ctx.0.rsp = (task_b_stack_end & !0xf) - 8;
-
-        unsafe {
-            let mut ptr = &task_b_ctx.0.fxsave_area[24] as *const u8 as *mut u32;
-            *ptr = 0x1f80;
-        }
-    }
-
     task::init();
+    without_interrupts(|| {
+        let mut task_manager = task::TASK_MANAGER.wait().lock();
+
+        task_manager.new_task().init_context(task_b, 45);
+        task_manager.new_task().init_context(task_idle, 0xdeadbeef);
+        task_manager.new_task().init_context(task_idle, 0xcafebabe);
+    });
 
     #[cfg(test)]
     test_main();
@@ -238,9 +219,22 @@ fn main(boot_info: &BootInfo) -> ! {
     }
 }
 
-fn task_b(task_id: u32, data: u32) {
+fn task_idle(task_id: u64, data: u64) {
+    info!("TaskIdle: task_id={task_id}, data={data}");
     loop {
-        info!("task B.");
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+fn task_b(task_id: u64, data: u64) {
+    info!("TaskB: task_id={task_id}, data={data}");
+    loop {
+        info!("TaskB.");
+        unsafe {
+            asm!("hlt");
+        }
     }
 }
 

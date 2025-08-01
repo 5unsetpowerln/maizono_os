@@ -1,18 +1,25 @@
 use core::arch::naked_asm;
+use core::mem::MaybeUninit;
 use core::ptr::{null, null_mut};
 
+use alloc::vec::Vec;
+use log::debug;
+use spin::Once;
 use spin::mutex::Mutex;
 use x86_64::instructions::interrupts::without_interrupts;
 
+use crate::segment::{KERNEL_CS, KERNEL_SS};
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
+use crate::util::read_cr3_raw;
 
-// pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 2;
-pub const TASK_TIMER_PERIOD: u64 = TIMER_FREQ as u64;
+pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 10;
+// pub const TASK_TIMER_PERIOD: u64 = TIMER_FREQ as u64;
+pub static TASK_MANAGER: Once<Mutex<TaskManager>> = Once::new();
 
 pub fn init() {
-    without_interrupts(|| {
-        *IS_TASK_A.lock() = true;
+    TASK_MANAGER.call_once(|| Mutex::new(TaskManager::new()));
 
+    without_interrupts(|| {
         let mut timer_manager = timer::TIMER_MANAGER.lock();
         let current_tick = timer_manager.get_current_tick();
         timer_manager.add_timer(Timer::new(
@@ -23,7 +30,10 @@ pub fn init() {
 }
 
 #[naked]
-unsafe extern "C" fn switch_context(next_ctx: *mut TaskContext, current_ctx: *const TaskContext) {
+pub unsafe extern "C" fn switch_context(
+    next_ctx: *const TaskContext,
+    current_ctx: *mut TaskContext,
+) {
     unsafe {
         naked_asm!(
             "mov [rsi + 0x40], rax",
@@ -164,37 +174,100 @@ impl TaskContext {
     }
 }
 
-static IS_TASK_A: Mutex<bool> = Mutex::new(true);
-pub static TASK_A_CTX: Mutex<TaskContext> = Mutex::new(TaskContext::zero());
-pub static TASK_B_CTX: Mutex<TaskContext> = Mutex::new(TaskContext::zero());
+pub type TaskFunc = fn(u64, u64);
 
-pub fn switch_task() {
-    let mut _is_task_a = IS_TASK_A.lock();
-    let is_task_a = *_is_task_a;
-    *_is_task_a = !*_is_task_a;
-    core::mem::drop(_is_task_a);
+const DEFAULT_STACK_SIZE: u64 = 128 * 8 * 1024;
 
-    if is_task_a {
-        let mut task_a_ctx: *const TaskContext = null();
-        let mut task_b_ctx: *mut TaskContext = null_mut();
-        without_interrupts(|| {
-            task_a_ctx = &*TASK_A_CTX.lock() as *const TaskContext;
-            task_b_ctx = &*TASK_B_CTX.lock() as *const TaskContext as *mut TaskContext;
-        });
+#[derive(Debug)]
+pub struct Task {
+    stack_size: u64,
+    id: u64,
+    stack: Vec<u64>,
+    context: TaskContext,
+}
+
+impl Task {
+    pub fn new(id: u64) -> Self {
+        Self {
+            stack_size: DEFAULT_STACK_SIZE,
+            id,
+            stack: Vec::new(),
+            context: TaskContext::zero(),
+        }
+    }
+
+    pub fn init_context(&mut self, f: TaskFunc, data: u64) {
+        let stack_size = self.stack_size / size_of::<u64>() as u64;
+        self.stack.resize(stack_size as usize, 0);
+
+        let stack_end_ref: &u64 = &self.stack[self.stack.len() - 1];
+        let stack_end = stack_end_ref as *const u64 as u64 + size_of::<u64>() as u64;
+
+        self.context.0.cr3 = unsafe { read_cr3_raw() };
+        self.context.0.rflags = 0x202;
+        self.context.0.cs = KERNEL_CS;
+        self.context.0.ss = KERNEL_SS;
+        self.context.0.rsp = (stack_end & !0xf) - 8;
+        self.context.0.rip = f as u64;
+        self.context.0.rdi = self.id;
+        self.context.0.rsi = data;
 
         unsafe {
-            switch_context(task_b_ctx, task_a_ctx);
+            let mut ptr = &self.context.0.fxsave_area[24] as *const u8 as *mut u32;
+            *ptr = 0x1f80;
         }
-    } else {
-        let mut task_b_ctx: *const TaskContext = null();
-        let mut task_a_ctx: *mut TaskContext = null_mut();
-        without_interrupts(|| {
-            task_a_ctx = &*TASK_A_CTX.lock() as *const TaskContext as *mut TaskContext;
-            task_b_ctx = &*TASK_B_CTX.lock() as *const TaskContext;
-        });
+    }
 
-        unsafe {
-            switch_context(task_a_ctx, task_b_ctx);
+    pub fn get_context<'a>(&'a self) -> &'a TaskContext {
+        &self.context
+    }
+}
+
+#[derive(Debug)]
+pub struct TaskManager {
+    tasks: Vec<Task>,
+    latest_id: u64 = 0,
+    current_task_index: usize,
+}
+
+impl TaskManager {
+    pub fn new() -> Self {
+        let mut self_ = Self {
+            tasks: Vec::new(),
+            latest_id: 0,
+            current_task_index: 0,
+        };
+        self_.new_task();
+        self_
+    }
+
+    pub fn new_task(&mut self) -> &mut Task {
+        self.latest_id += 1;
+        self.tasks.push(Task::new(self.latest_id));
+        let last_index = self.tasks.len() - 1;
+        &mut self.tasks[last_index]
+    }
+
+    pub fn get_contexts_for_task_switching(&mut self) -> (*const TaskContext, *mut TaskContext) {
+        // pub fn switch_task(&mut self) {
+        // pub fn switch_task(self: Mutex<Self>) {
+        let mut next_task_index = self.current_task_index + 1;
+        if next_task_index >= self.tasks.len() {
+            next_task_index = 0;
         }
+
+        let current_context = self.tasks[self.current_task_index].get_context()
+            as *const TaskContext as *mut TaskContext;
+        let next_context = self.tasks[next_task_index].get_context() as *const TaskContext;
+        self.current_task_index = next_task_index;
+
+        (next_context, current_context)
+        // debug!(
+        //     "switching task... next_context: {next_context:?}, current_context: {current_context:?}"
+        // );
+        // core::mem::drop(*self);
+        // unsafe {
+        //     switch_context(next_context, current_context);
+        // }
     }
 }

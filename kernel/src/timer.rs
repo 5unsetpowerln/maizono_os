@@ -5,11 +5,12 @@ use log::debug;
 use spin::{Mutex, Once};
 use x86_64::structures::idt::InterruptStackFrame;
 
+use crate::task::{TASK_MANAGER, TaskManager, switch_context};
 use crate::{
     acpi,
     interrupts::{self, LAPIC},
     message::{self, Message},
-    task::{TASK_TIMER_PERIOD, switch_task},
+    task::{self, TASK_TIMER_PERIOD},
 };
 
 const INITIAL_COUNT: u32 = 0x1000000;
@@ -151,9 +152,20 @@ static TEST_COUNTER: Mutex<u64> = Mutex::new(0);
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     message::enqueue(Message::LocalAPICTimerInterrupt);
     let is_preemptive_multitask_timeout = TIMER_MANAGER.lock().increment_tick();
+
+    // if is_preemptive_multitask_timeout {
+    // }
+
     interrupts::notify_end_of_interrupt();
 
     if is_preemptive_multitask_timeout {
-        switch_task();
+        let (next_ctx, current_ctx) = {
+            let mut task_manager = task::TASK_MANAGER.wait().lock();
+            task_manager.get_contexts_for_task_switching()
+        };
+        debug!("{:p} -> {:p}", current_ctx, next_ctx);
+        unsafe {
+            switch_context(next_ctx, current_ctx);
+        }
     }
 }
