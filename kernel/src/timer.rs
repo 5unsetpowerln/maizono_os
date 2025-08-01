@@ -148,7 +148,6 @@ pub fn init_lagic_timer() {
 //     TIMER_MANAGER.lock().increment_tick();
 // }
 
-static TEST_COUNTER: Mutex<u64> = Mutex::new(0);
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     message::enqueue(Message::LocalAPICTimerInterrupt);
     let is_preemptive_multitask_timeout = TIMER_MANAGER.lock().increment_tick();
@@ -163,7 +162,7 @@ pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFram
             let mut task_manager = task::TASK_MANAGER.wait().lock();
             task_manager.get_contexts_for_task_switching()
         };
-        debug!("{:p} -> {:p}", current_ctx, next_ctx);
+
         unsafe {
             switch_context(next_ctx, current_ctx);
         }

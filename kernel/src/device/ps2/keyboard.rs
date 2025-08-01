@@ -1,9 +1,4 @@
-use log::{debug, info};
-use num_enum::TryFromPrimitive;
-use pc_keyboard::DecodedKey;
-use spin::{Lazy, Mutex};
 use x86_64::structures::idt::InterruptStackFrame;
-use xhci::extended_capabilities::debug;
 
 use crate::{
     device::ps2::{self, InterpretableResponse, KEYBOARD_CONTROLLER, Response, read_key_event},

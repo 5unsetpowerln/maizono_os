@@ -12,7 +12,7 @@ use crate::segment::{KERNEL_CS, KERNEL_SS};
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
 use crate::util::read_cr3_raw;
 
-pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 10;
+pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 2;
 // pub const TASK_TIMER_PERIOD: u64 = TIMER_FREQ as u64;
 pub static TASK_MANAGER: Once<Mutex<TaskManager>> = Once::new();
 
