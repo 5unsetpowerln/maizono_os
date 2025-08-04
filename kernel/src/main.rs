@@ -47,10 +47,13 @@ use graphic::{
 };
 use log::{debug, error, info};
 use pc_keyboard::DecodedKey;
+use spin::once::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::graphic::{create_canvas_and_layer, layer};
 use task::TaskManagerTrait;
+
+use self::task::TASK_MANAGER;
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -95,6 +98,8 @@ struct LayerIDs {
     console_layer_id: usize,
     bg_layer_id: usize,
 }
+
+static LAYER_IDS: Once<LayerIDs> = Once::new();
 
 fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     frame_buffer::init(&boot_info.graphic_info).expect("Failed to initialize the frame buffer.");
@@ -147,7 +152,8 @@ fn main(boot_info: &BootInfo) -> ! {
     frame_manager::init(&boot_info.memory_map);
     allocator::init();
 
-    let _layer_ids = init_graphic(boot_info);
+    let layer_ids = init_graphic(boot_info);
+    LAYER_IDS.call_once(|| layer_ids);
 
     pci::devices()
         .unwrap()
@@ -195,8 +201,6 @@ fn main(boot_info: &BootInfo) -> ! {
     test_main();
 
     loop {
-        layer::LAYER_MANAGER.lock().draw();
-
         x86_64::instructions::interrupts::disable();
 
         let message_opt = task::TASK_MANAGER
@@ -212,26 +216,9 @@ fn main(boot_info: &BootInfo) -> ! {
                     if let Ok(scancode) = result {
                         if let Some(key_code) = ps2::read_key_event(scancode) {
                             match key_code {
-                                // DecodedKey::Unicode(character) => {
-                                //     if character == 's' {
-                                //         without_interrupts(|| {
-                                //             task::TASK_MANAGER
-                                //                 .wait()
-                                //                 .sleep(task_b_id)
-                                //                 .expect("Failed to sleep a task.");
-                                //         });
-                                //     } else if character == 'w' {
-                                //         let mut task_manager = task::TASK_MANAGER.wait().lock();
-                                //         task_manager
-                                //             .wakeup(task_b_id)
-                                //             .expect("Failed to wakeup a task.");
-                                //     }
-                                // }
-                                // _ => {}
                                 DecodedKey::Unicode(character) => kprint!("{}", character),
                                 DecodedKey::RawKey(key) => kprint!("{:?}", key),
                             }
-                            // layer::LAYER_MANAGER.lock().draw();
                         }
                     }
                 }
@@ -242,6 +229,20 @@ fn main(boot_info: &BootInfo) -> ! {
                 message::Message::PS2MouseInterrupt => {
                     error!("PS2 mouse is disabled but the interrupt occured.");
                 }
+                message::Message::Layer(operation) => {
+                    layer::process_layer_operation(&operation);
+                    without_interrupts(|| {
+                        TASK_MANAGER
+                            .wait()
+                            .lock()
+                            .send_message_to_task(
+                                operation.src_task_id,
+                                &message::Message::LayerFinish,
+                            )
+                            .unwrap();
+                    });
+                }
+                message::Message::LayerFinish => {}
             }
         } else {
             task::TASK_MANAGER
@@ -266,10 +267,51 @@ fn task_idle(task_id: u64, data: u64) {
 
 fn task_b(task_id: u64, data: u64) {
     info!("TaskB: task_id={task_id}, data={data}");
+
+    let current_task_id = without_interrupts(|| TASK_MANAGER.wait().lock().get_current_task_id());
+    let console_layer_id = LAYER_IDS
+        .get()
+        .expect("LAYER_IDS is not initialized.")
+        .console_layer_id;
+
     loop {
         info!("TaskB.");
-        unsafe {
-            asm!("hlt");
+
+        let layer_operation = message::LayerOperation::new(
+            message::LayerOperationKind::Draw,
+            console_layer_id,
+            current_task_id,
+        );
+        let msg = message::Message::Layer(layer_operation);
+        without_interrupts(|| {
+            TASK_MANAGER
+                .wait()
+                .lock()
+                .send_message_to_task(1, &msg)
+                .unwrap();
+        });
+
+        loop {
+            x86_64::instructions::interrupts::disable();
+            if let Some(msg) = TASK_MANAGER
+                .wait()
+                .lock()
+                .receive_message_from_task(current_task_id)
+                .unwrap()
+            {
+                if let message::Message::LayerFinish = msg {
+                    x86_64::instructions::interrupts::enable();
+                    break;
+                }
+            } else {
+                x86_64::instructions::interrupts::enable();
+                TASK_MANAGER.wait().sleep(current_task_id).unwrap();
+                continue;
+            }
+
+            unsafe {
+                asm!("hlt");
+            }
         }
     }
 }

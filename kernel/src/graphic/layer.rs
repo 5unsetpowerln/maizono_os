@@ -13,7 +13,7 @@ use crate::{
         canvas::Canvas,
         frame_buffer::{self, FRAME_BUFFER_HEIGHT, FRAME_BUFFER_WIDTH, FrameBuffer},
     },
-    serial, serial_println,
+    message, serial, serial_println,
 };
 
 pub struct Layer {
@@ -152,7 +152,7 @@ impl LayerManager {
         unsafe { frame_buffer.lock().copy(u64vec2(0, 0), &self.back_buffer) };
     }
 
-    pub fn draw_from(&mut self, id: usize) {
+    fn draw_from(&mut self, id: usize) {
         let specified_layer = if let Some((layer, _)) = self.find_layer(id) {
             layer
         } else {
@@ -212,3 +212,21 @@ impl LayerManager {
 }
 
 pub static LAYER_MANAGER: Lazy<Mutex<LayerManager>> = Lazy::new(|| Mutex::new(LayerManager::new()));
+
+pub fn process_layer_operation(operation: &message::LayerOperation) {
+    match operation.kind {
+        message::LayerOperationKind::Draw => {
+            LAYER_MANAGER.lock().draw_from(operation.layer_id);
+        }
+        message::LayerOperationKind::MoveAbsolute(position) => {
+            LAYER_MANAGER
+                .lock()
+                .move_absolute(operation.layer_id, position);
+        }
+        message::LayerOperationKind::MoveRelative(offset) => {
+            LAYER_MANAGER
+                .lock()
+                .move_relative(operation.layer_id, offset);
+        }
+    }
+}

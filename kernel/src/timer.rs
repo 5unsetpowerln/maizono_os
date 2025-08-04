@@ -15,8 +15,6 @@ use crate::{
 };
 use task::TaskManagerTrait;
 
-const INITIAL_COUNT: u32 = 0x1000000;
-
 pub static TIMER_MANAGER: Mutex<TimerManager> = Mutex::new(TimerManager::new());
 pub static LAPIC_TIMER_FREQ: Once<u32> = Once::new();
 pub const TIMER_FREQ: u32 = 100;
