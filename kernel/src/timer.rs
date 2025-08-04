@@ -3,6 +3,7 @@ use core::cmp::Ordering;
 use alloc::collections::binary_heap::BinaryHeap;
 use log::debug;
 use spin::{Mutex, Once};
+use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::task::TASK_MANAGER;
@@ -149,18 +150,16 @@ pub fn init_lagic_timer() {
     debug!("Initialized lapic timer.")
 }
 
-// pub fn local_apic_timer_interrupt_hook() {
-//     TIMER_MANAGER.lock().increment_tick();
-// }
-
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
-    task::TASK_MANAGER
-        .wait()
-        .lock()
-        .send_message_to_task(1, &Message::LocalAPICTimerInterrupt)
-        .expect("Failed to send a message to main task.");
+    without_interrupts(|| {
+        task::TASK_MANAGER
+            .wait()
+            .lock()
+            .send_message_to_task(1, &Message::LocalAPICTimerInterrupt)
+            .expect("Failed to send a message to main task.");
+    });
 
-    let is_preemptive_multitask_timeout = TIMER_MANAGER.lock().increment_tick();
+    let is_preemptive_multitask_timeout = { TIMER_MANAGER.lock().increment_tick() };
 
     interrupts::notify_end_of_interrupt();
 

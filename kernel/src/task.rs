@@ -2,8 +2,12 @@ use core::arch::naked_asm;
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
+use log::debug;
+use num_enum::TryFromPrimitive;
 use slotmap::{DefaultKey, SlotMap};
 use spin::Once;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::allocator::Locked;
@@ -14,6 +18,16 @@ use crate::util::read_cr3_raw;
 
 pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 2;
 pub static TASK_MANAGER: Once<Locked<TaskManager>> = Once::new();
+
+#[repr(i8)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Copy, Clone, TryFromPrimitive)]
+pub enum PriorityLevel {
+    Level0 = 0,
+    Level1 = 1,
+    Level2 = 2,
+    Level3 = 3,
+    Unchanged = -1,
+}
 
 pub fn init() {
     TASK_MANAGER.call_once(|| Locked::new(TaskManager::new()));
@@ -184,6 +198,8 @@ pub struct Task {
     stack: Vec<u64>,
     context: TaskContext,
     messages: VecDeque<Message>,
+    is_running: bool,
+    level: u8,
 }
 
 impl Task {
@@ -194,6 +210,8 @@ impl Task {
             stack: Vec::new(),
             context: TaskContext::zero(),
             messages: VecDeque::new(),
+            level: DEFAULT_LEVEL,
+            is_running: false,
         }
     }
 
@@ -232,13 +250,34 @@ impl Task {
     pub fn get_id(&self) -> u64 {
         self.id
     }
+
+    fn set_level(&mut self, level: u8) -> &mut Self {
+        self.level = level;
+        self
+    }
+
+    fn set_is_running(&mut self, state: bool) -> &mut Self {
+        self.is_running = state;
+        self
+    }
 }
+
+// impl PriorityLevel {
+//     pub const fn iter()
+// }
+
+// pub const MAX_LEVEL: PriorityLevel = PriorityLevel::Level3;
+pub const MAX_LEVEL: u8 = 3;
+pub const DEFAULT_LEVEL: u8 = 1;
 
 #[derive(Debug)]
 pub struct TaskManager {
     latest_id: u64 = 0,
     tasks: SlotMap<slotmap::DefaultKey, Task>,
-    running: VecDeque<slotmap::DefaultKey>
+    running_queues: [VecDeque<slotmap::DefaultKey>; MAX_LEVEL as usize + 1],
+    current_level: u8,
+    /// is_level_changed というか、current_level よりも優先度の高いタスクが存在しているかどうかを表すフラグ
+    is_level_changed: bool,
 }
 
 impl TaskManager {
@@ -246,12 +285,23 @@ impl TaskManager {
         let mut self_ = Self {
             tasks: SlotMap::new(),
             latest_id: 0,
-            running: VecDeque::new(),
+            running_queues: core::array::from_fn(|_| VecDeque::new()),
+            current_level: MAX_LEVEL,
+            is_level_changed: false,
         };
-        self_.new_task();
 
-        let key = self_.get_key_from_id(self_.latest_id).unwrap();
-        self_.running.push_back(key);
+        let current_level = self_.current_level;
+
+        let main_task = self_
+            .new_task()
+            .set_level(current_level)
+            .set_is_running(true);
+        let rip = main_task.context.0.rip;
+        debug!("rip: {:x}", rip);
+        let main_task_id = main_task.id;
+        let main_task_key = self_.get_key_from_id(main_task_id).unwrap();
+
+        self_.running_queues[current_level as usize].push_back(main_task_key);
 
         self_
     }
@@ -265,7 +315,9 @@ impl TaskManager {
     }
 
     pub fn get_current_task_id(&self) -> u64 {
-        let key = self.running.front().unwrap();
+        let key = self.running_queues[self.current_level as usize]
+            .front()
+            .unwrap();
         let task = self.tasks.get(*key).unwrap();
         task.id
     }
@@ -276,25 +328,105 @@ impl TaskManager {
         self.tasks.get_mut(key).unwrap()
     }
 
-    fn wakeup_by_key(&mut self, key: DefaultKey) {
-        if !self.running.iter().any(|x| *x == key) {
-            self.running.push_back(key);
+    /// レベルが負の場合はレベルを変更しない
+    fn wakeup_by_key(&mut self, key: DefaultKey, level: Option<u8>) -> Result<()> {
+        let task = if let Some(t) = self.tasks.get_mut(key) {
+            t
+        } else {
+            return Err(Error::TaskNotFound);
+        };
+
+        if task.is_running {
+            self.change_level_in_running_queue(key, level)?;
+            return Ok(());
         }
+
+        let level = level.unwrap_or(task.level);
+
+        task.set_level(level);
+        task.set_is_running(true);
+
+        self.running_queues[level as usize].push_back(key);
+
+        // 今実行しているタスクとは違うタスクのレベルについて言っている
+        if level > self.current_level {
+            self.is_level_changed = true;
+        }
+
+        Ok(())
     }
 
-    pub fn wakeup(&mut self, id: u64) -> Result<()> {
+    /// level 引数は新しくタスクを生成したときに、そのタスクの優先度を明示的に指定するのではなくて、デフォルトの優先度を適用したいときにのみ None を渡してください。
+    /// すでに存在しているタスクについて操作するときは level を明示的に指定してください。
+    pub fn wakeup(&mut self, id: u64, level: Option<u8>) -> Result<()> {
         if let Some((key, _)) = self.tasks.iter().find(|(_, t)| t.id == id) {
-            self.wakeup_by_key(key);
+            self.wakeup_by_key(key, level)?;
         } else {
             return Err(Error::TaskNotFound);
         }
         Ok(())
     }
 
+    fn change_level_in_running_queue(&mut self, key: DefaultKey, level: Option<u8>) -> Result<()> {
+        if let None = level {
+            return Ok(());
+        }
+
+        let level = level.unwrap();
+
+        assert!(level <= MAX_LEVEL);
+
+        let task = if let Some(t) = self.tasks.get_mut(key) {
+            t
+        } else {
+            return Err(Error::TaskNotFound);
+        };
+
+        // optimization
+        if level == task.level {
+            return Ok(());
+        }
+
+        let current_level = self.current_level;
+
+        // 現在実行中 (running_queueに入っているとかじゃなくて今まさに実行している) 場合
+        match self.running_queues[current_level as usize].front() {
+            Some(k) => {
+                if *k != key {
+                    // change level of other task
+                    self.running_queues[task.level as usize].retain(|x| *x == key);
+                    self.running_queues[level as usize].push_back(key);
+                    task.set_level(level);
+
+                    if level > self.current_level {
+                        self.is_level_changed = true;
+                    }
+                    return Ok(());
+                }
+            }
+            None => return Err(Error::TaskNotFound),
+        }
+
+        // change level myself
+        self.running_queues[current_level as usize].pop_front();
+        self.running_queues[level as usize].push_front(key);
+        task.set_level(level);
+        if level >= current_level {
+            self.current_level = level;
+        } else {
+            self.current_level = level;
+            // is_level_changed はレベルが変わったかどうかというよりも、
+            // current_level よりも優先度が高いタスクが存在しているかどうかを表すフラグとして理解したほうが良さそう
+            self.is_level_changed = true;
+        }
+
+        Ok(())
+    }
+
     pub fn send_message_to_task(&mut self, id: u64, message: &Message) -> Result<()> {
         if let Some((key, task)) = self.tasks.iter_mut().find(|(_, t)| t.id == id) {
             task.messages.push_back(*message);
-            self.wakeup_by_key(key);
+            self.wakeup_by_key(key, None)?;
         } else {
             return Err(Error::TaskNotFound);
         }
@@ -317,7 +449,7 @@ impl TaskManager {
 
 pub trait TaskManagerTrait {
     fn switch_task(&self, current_sleep: bool);
-    fn sleep_by_key(&self, key: DefaultKey);
+    fn sleep_by_key(&self, key: DefaultKey) -> Result<()>;
     fn sleep(&self, id: u64) -> Result<()>;
 }
 
@@ -325,14 +457,41 @@ impl TaskManagerTrait for Locked<TaskManager> {
     fn switch_task(&self, current_sleep: bool) {
         let mut self_ = self.lock();
 
-        let current_task_key = self_.running.pop_front().unwrap();
+        let current_level = self_.current_level;
+        let current_task_key = self_.running_queues[current_level as usize]
+            .pop_front()
+            .unwrap();
 
         if !current_sleep {
-            self_.running.push_back(current_task_key);
+            self_.running_queues[current_level as usize].push_back(current_task_key);
         }
 
-        let next_task_key = self_.running.front().unwrap();
+        if self_.running_queues[current_level as usize].is_empty() {
+            self_.is_level_changed = true;
+        }
 
+        if self_.is_level_changed {
+            self_.is_level_changed = false;
+
+            // for level in (PriorityLevel::Level0 as i8..MAX_LEVEL as i8).rev() {
+            for level in (0..=MAX_LEVEL).rev() {
+                if !self_.running_queues[level as usize].is_empty() {
+                    // self_.current_level = PriorityLevel::try_from(level).unwrap();
+                    // self_.current_level = PriorityLevel::try_from(level).unwrap();
+                    self_.current_level = level;
+                    break;
+                }
+            }
+        }
+
+        let current_level = self_.current_level;
+
+        // 上のfor文内でrunning_queues[current_level]が空ではないことは確認済み
+        let next_task_key = self_.running_queues[current_level as usize]
+            .front()
+            .unwrap();
+
+        // running_queuesに入っているkeyはすべてtasksに紐づいていることが前提になっている
         let current_context = self_.tasks.get(current_task_key).unwrap().get_context()
             as *const TaskContext as *mut TaskContext;
         let next_context =
@@ -345,29 +504,35 @@ impl TaskManagerTrait for Locked<TaskManager> {
         }
     }
 
-    fn sleep_by_key(&self, key: DefaultKey) {
+    fn sleep_by_key(&self, key: DefaultKey) -> Result<()> {
         let mut self_ = self.lock();
+        let task = if let Some(t) = self_.tasks.get_mut(key) {
+            t
+        } else {
+            return Err(Error::TaskNotFound);
+        };
 
-        let mut index = None;
+        if !task.is_running {
+            return Ok(());
+        }
 
-        for (i, k) in self_.running.iter().enumerate() {
-            if *k == key {
-                index.replace(i);
-                break;
+        task.set_is_running(false);
+
+        match self_.running_queues[self_.current_level as usize].front() {
+            Some(k) => {
+                if *k == key {
+                    core::mem::drop(self_);
+                    self.switch_task(true);
+                    return Ok(());
+                }
             }
+            None => return Err(Error::TaskNotFound),
         }
 
-        if index.is_none() {
-            return;
-        }
+        let current_level = self_.current_level;
+        self_.running_queues[current_level as usize].retain(|k| *k == key);
 
-        if index == Some(0) {
-            core::mem::drop(self_);
-            self.switch_task(true);
-            return;
-        }
-
-        self_.running.remove(index.unwrap());
+        Ok(())
     }
 
     fn sleep(&self, id: u64) -> Result<()> {
@@ -381,7 +546,7 @@ impl TaskManagerTrait for Locked<TaskManager> {
 
         core::mem::drop(self_);
 
-        self.sleep_by_key(key);
+        self.sleep_by_key(key)?;
 
         Ok(())
     }

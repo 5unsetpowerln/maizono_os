@@ -1,4 +1,5 @@
-use x86_64::structures::idt::InterruptStackFrame;
+use log::debug;
+use x86_64::{instructions::interrupts::without_interrupts, structures::idt::InterruptStackFrame};
 
 use crate::{
     device::ps2::{self, InterpretableResponse, KEYBOARD_CONTROLLER, Response, read_key_event},
@@ -64,7 +65,7 @@ impl Keyboard {
 
     unsafe fn read_response(&mut self) -> Result<Response> {
         let response = unsafe { self.controller.read_data() }?;
-        return Ok(Response::from_u8(response));
+        Ok(Response::from_u8(response))
     }
 
     unsafe fn write_command(&mut self, command: Command, data: Option<u8>) -> Result<()> {
@@ -147,28 +148,32 @@ impl Keyboard {
         let response = unsafe { self.read_response() }?;
 
         if let Response::Interpretable(i_resp) = response {
-            return match i_resp {
+            match i_resp {
                 InterpretableResponse::SelfTestPassed => Ok(()),
                 InterpretableResponse::SelfTestFailed1 => Err(KeyboardError::SelfTestFailed),
                 InterpretableResponse::SelfTestFailed2 => Err(KeyboardError::SelfTestFailed),
                 _ => Err(KeyboardError::InvalidResponse),
-            };
+            }
         } else {
-            return Err(KeyboardError::InvalidResponse);
+            Err(KeyboardError::InvalidResponse)
         }
     }
 
     pub unsafe fn read_data(&mut self) -> Result<u8> {
-        return Ok(unsafe { self.controller.read_data()? });
+        Ok(unsafe { self.controller.read_data()? })
     }
 }
 
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     let result = unsafe { ps2::KEYBOARD_CONTROLLER.wait().lock().read_data() };
-    task::TASK_MANAGER
-        .wait()
-        .lock()
-        .send_message_to_task(1, &message::Message::PS2KeyboardInterrupt(result))
-        .expect("Failed to send a message to main task.");
+
+    without_interrupts(|| {
+        task::TASK_MANAGER
+            .wait()
+            .lock()
+            .send_message_to_task(1, &message::Message::PS2KeyboardInterrupt(result))
+            .expect("Failed to send a message to main task.");
+    }); // lock is dropped here.
+
     interrupts::notify_end_of_interrupt();
 }

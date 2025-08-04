@@ -264,17 +264,19 @@ pub fn get_console_reference() -> &'static Locked<Console> {
 }
 
 pub fn _print(args: ::core::fmt::Arguments) {
-    #[cfg(feature = "logging_in_interrupt_handler")]
-    x86_64::instructions::interrupts::disable();
+    // #[cfg(feature = "logging_in_interrupt_handler")]
+    // x86_64::instructions::interrupts::disable();
 
-    use core::fmt::Write;
-    get_console_reference()
-        .lock()
-        .write_fmt(args)
-        .expect("Failed to print string to console.");
+    without_interrupts(|| {
+        use core::fmt::Write;
+        get_console_reference()
+            .lock()
+            .write_fmt(args)
+            .expect("Failed to print string to console.");
+    });
 
-    #[cfg(feature = "logging_in_interrupt_handler")]
-    x86_64::instructions::interrupts::enable();
+    // #[cfg(feature = "logging_in_interrupt_handler")]
+    // x86_64::instructions::interrupts::enable();
 }
 
 #[macro_export]

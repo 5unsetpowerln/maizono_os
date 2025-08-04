@@ -157,12 +157,12 @@ fn main(boot_info: &BootInfo) -> ! {
     unsafe { acpi::init(boot_info.rsdp) };
 
     without_interrupts(|| {
+        ps2::init(true, false);
         interrupts::init();
 
         timer::init_lagic_timer();
         task::init();
     });
-    ps2::init(true, false);
 
     let (task_b_id, _main_task_id) = without_interrupts(|| {
         let mut task_manager = task::TASK_MANAGER.wait().lock();
@@ -171,18 +171,22 @@ fn main(boot_info: &BootInfo) -> ! {
 
         let task_b_id = task_manager.new_task().init_context(task_b, 45).get_id();
         task_manager
-            .wakeup(task_b_id)
+            .wakeup(task_b_id, None)
             .expect("Failed to wakeup a task.");
         let id = task_manager
             .new_task()
             .init_context(task_idle, 0xdeadbeef)
             .get_id();
-        task_manager.wakeup(id).expect("Failed to wakeup a task.");
+        task_manager
+            .wakeup(id, None)
+            .expect("Failed to wakeup a task.");
         let id = task_manager
             .new_task()
             .init_context(task_idle, 0xcafebabe)
             .get_id();
-        task_manager.wakeup(id).expect("Failed to wakeup a task.");
+        task_manager
+            .wakeup(id, None)
+            .expect("Failed to wakeup a task.");
 
         (task_b_id, main_task_id)
     });
@@ -194,6 +198,7 @@ fn main(boot_info: &BootInfo) -> ! {
         layer::LAYER_MANAGER.lock().draw();
 
         x86_64::instructions::interrupts::disable();
+
         let message_opt = task::TASK_MANAGER
             .wait()
             .lock()
@@ -226,6 +231,7 @@ fn main(boot_info: &BootInfo) -> ! {
                                 DecodedKey::Unicode(character) => kprint!("{}", character),
                                 DecodedKey::RawKey(key) => kprint!("{:?}", key),
                             }
+                            // layer::LAYER_MANAGER.lock().draw();
                         }
                     }
                 }
