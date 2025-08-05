@@ -7,7 +7,7 @@ use uefi::{
     CStr16,
     boot::{self, AllocateType, MemoryType},
     cstr16,
-    proto::media::file::{File, FileInfo},
+    proto::media::file::{File, FileInfo, FileType},
 };
 
 use crate::open_file;
@@ -16,7 +16,12 @@ const KERNEL_FILE_NAME: &CStr16 = cstr16!("kernel.elf");
 const UEFI_PAGE_SIZE: usize = 0x1000;
 
 pub fn load_kernel() -> Kernel {
-    let mut file = open_file(KERNEL_FILE_NAME);
+    let mut file = match open_file(KERNEL_FILE_NAME).unwrap() {
+        FileType::Regular(f) => f,
+        _ => {
+            panic!("Kernel file is not a regular file.")
+        }
+    };
 
     let file_info = file
         .get_boxed_info::<FileInfo>()

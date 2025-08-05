@@ -15,6 +15,7 @@ mod acpi;
 mod allocator;
 mod device;
 mod error;
+mod fat;
 mod frame_manager;
 mod gdt;
 mod graphic;
@@ -162,6 +163,7 @@ fn main(boot_info: &BootInfo) -> ! {
     gdt::init();
     frame_manager::init(&boot_info.memory_map);
     allocator::init();
+    fat::init(boot_info.volume_image);
 
     let layer_ids = init_graphic(boot_info);
     LAYER_IDS.call_once(|| layer_ids);
@@ -172,6 +174,21 @@ fn main(boot_info: &BootInfo) -> ! {
         .unwrap_or_else(|err| error!("{:#?}", err));
 
     unsafe { acpi::init(boot_info.rsdp) };
+
+    for i in 0..16 {
+        kprint!("{:04x}:", i * 16);
+        for j in 0..8 {
+            kprint!(" {:02x}", boot_info.volume_image[16 * i + j]);
+        }
+
+        kprint!(" ");
+
+        for j in 8..16 {
+            kprint!(" {:02x}", boot_info.volume_image[16 * i + j]);
+        }
+
+        kprint!("\n");
+    }
 
     without_interrupts(|| {
         ps2::init(true, false);
@@ -184,8 +201,6 @@ fn main(boot_info: &BootInfo) -> ! {
 
     without_interrupts(|| {
         let mut task_manager = task::TASK_MANAGER.wait().lock();
-
-        let main_task_id = task_manager.get_current_task_id();
 
         let terminal_task_id = task_manager
             .new_task()

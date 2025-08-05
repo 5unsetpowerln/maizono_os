@@ -1,3 +1,5 @@
+use core::ptr::NonNull;
+
 use acpi::rsdp::Rsdp;
 use uefi::mem::memory_map::MemoryMapOwned;
 
@@ -9,14 +11,21 @@ pub struct BootInfo {
     pub graphic_info: GraphicInfo,
     pub memory_map: MemoryMapOwned,
     pub rsdp: &'static Rsdp,
+    pub volume_image: &'static [u8],
 }
 
 impl BootInfo {
-    pub fn new(graphic_info: GraphicInfo, memory_map: MemoryMapOwned, rsdp: &'static Rsdp) -> Self {
+    pub fn new(
+        graphic_info: GraphicInfo,
+        memory_map: MemoryMapOwned,
+        rsdp: &'static Rsdp,
+        volume_image: &'static [u8],
+    ) -> Self {
         Self {
             graphic_info,
             memory_map,
             rsdp,
+            volume_image,
         }
     }
 }
