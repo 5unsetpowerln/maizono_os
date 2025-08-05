@@ -17,7 +17,6 @@ use crate::kprint;
 use crate::kprintln;
 use crate::logger;
 use crate::message;
-use crate::serial_println;
 use crate::task::TASK_MANAGER;
 use crate::task::TaskManagerTrait;
 
@@ -214,8 +213,6 @@ pub fn terminal_task(task_id: u64, _data: u64) {
         }) {
             let mut terminal = TERMINAL.wait().lock();
             terminal.input_key(decoded_key);
-            serial_println!("line_buffer: {:?}", terminal.line_buffer);
-            serial_println!("display_line_buffer: {:?}", terminal.display_line_buffer);
             terminal.display_on_console();
         } else {
             without_interrupts(|| {
