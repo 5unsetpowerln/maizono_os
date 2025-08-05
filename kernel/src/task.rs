@@ -6,8 +6,6 @@ use log::debug;
 use num_enum::TryFromPrimitive;
 use slotmap::{DefaultKey, SlotMap};
 use spin::Once;
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::allocator::Locked;
@@ -455,6 +453,7 @@ pub trait TaskManagerTrait {
 
 impl TaskManagerTrait for Locked<TaskManager> {
     fn switch_task(&self, current_sleep: bool) {
+        x86_64::instructions::interrupts::disable();
         let mut self_ = self.lock();
 
         let current_level = self_.current_level;
@@ -473,11 +472,8 @@ impl TaskManagerTrait for Locked<TaskManager> {
         if self_.is_level_changed {
             self_.is_level_changed = false;
 
-            // for level in (PriorityLevel::Level0 as i8..MAX_LEVEL as i8).rev() {
             for level in (0..=MAX_LEVEL).rev() {
                 if !self_.running_queues[level as usize].is_empty() {
-                    // self_.current_level = PriorityLevel::try_from(level).unwrap();
-                    // self_.current_level = PriorityLevel::try_from(level).unwrap();
                     self_.current_level = level;
                     break;
                 }
@@ -498,6 +494,7 @@ impl TaskManagerTrait for Locked<TaskManager> {
             self_.tasks.get(*next_task_key).unwrap().get_context() as *const TaskContext;
 
         core::mem::drop(self_);
+        x86_64::instructions::interrupts::enable();
 
         unsafe {
             switch_context(next_context, current_context);
@@ -505,7 +502,9 @@ impl TaskManagerTrait for Locked<TaskManager> {
     }
 
     fn sleep_by_key(&self, key: DefaultKey) -> Result<()> {
+        x86_64::instructions::interrupts::disable();
         let mut self_ = self.lock();
+
         let task = if let Some(t) = self_.tasks.get_mut(key) {
             t
         } else {
@@ -522,20 +521,29 @@ impl TaskManagerTrait for Locked<TaskManager> {
             Some(k) => {
                 if *k == key {
                     core::mem::drop(self_);
+                    x86_64::instructions::interrupts::disable();
                     self.switch_task(true);
                     return Ok(());
                 }
             }
-            None => return Err(Error::TaskNotFound),
+
+            None => {
+                core::mem::drop(self_);
+                x86_64::instructions::interrupts::enable();
+                return Err(Error::TaskNotFound);
+            }
         }
 
         let current_level = self_.current_level;
         self_.running_queues[current_level as usize].retain(|k| *k == key);
+        core::mem::drop(self_);
+        x86_64::instructions::interrupts::enable();
 
         Ok(())
     }
 
     fn sleep(&self, id: u64) -> Result<()> {
+        x86_64::instructions::interrupts::disable();
         let self_ = self.lock();
 
         let key = if let Some((k, _)) = self_.tasks.iter().find(|(_, t)| t.id == id) {
@@ -545,6 +553,7 @@ impl TaskManagerTrait for Locked<TaskManager> {
         };
 
         core::mem::drop(self_);
+        x86_64::instructions::interrupts::enable();
 
         self.sleep_by_key(key)?;
 

@@ -5,15 +5,16 @@ use core::{
     str,
 };
 
-use alloc::sync::Arc;
+use alloc::{sync::Arc, vec::Vec};
 use ascii::Char;
 use common::graphic::{RgbColor, rgb};
 use glam::u64vec2;
 use spin::{Mutex, Once};
-use thiserror_no_std::Error;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{allocator::Locked, error::Result, graphic::canvas::Canvas, serial_println};
+
+use self::line::Line;
 
 use super::{
     PixelWriter,
@@ -26,59 +27,159 @@ const COLUMNS: usize = 100;
 pub const WIDTH: usize = COLUMNS * CHARACTER_WIDTH;
 pub const HEIGHT: usize = ROWS * CHARACTER_HEIGHT;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsoleError {
-    #[error("The console is not initialized yet.")]
     UninitializedError,
-    #[error("Failed to lock the console.")]
     ConsoleLockError,
-    #[error("The number of characters in the line overflowed the capacity.")]
-    LineLengthOverflow,
+    LineNoCapacity,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Line<const CAP: usize> {
-    chars: [ascii::Char; CAP],
-    cursor: usize,
-}
+mod line {
+    use core::ascii;
 
-impl<const CAP: usize> Line<CAP> {
-    // pub fn new(chars: [ascii::Char; CAP], length: usize) -> Result<Self> {
-    //     if length > CAP {
-    //         return Err(ConsoleError::LineLengthOverflow.into());
-    //     }
+    use arrayvec::ArrayVec;
 
-    //     return Ok(Self { chars, length });
-    // }
+    use crate::error::Result;
+    use crate::graphic::console::ConsoleError;
 
-    pub const fn null() -> Self {
-        Self {
-            chars: [ascii::Char::from_u8(0).unwrap(); CAP],
-            cursor: 0,
-        }
+    #[derive(Clone, Debug)]
+    pub struct Line<const CAP: usize> {
+        buffer: ArrayVec<ascii::Char, CAP>,
+        cursor: usize,
     }
 
-    pub fn push(&mut self, char: ascii::Char) -> Result<()> {
-        if self.cursor >= CAP {
-            return Err(ConsoleError::LineLengthOverflow.into());
+    impl<const CAP: usize> Line<CAP> {
+        pub const fn new() -> Self {
+            Self {
+                buffer: ArrayVec::new_const(),
+                cursor: 0,
+            }
         }
 
-        self.chars[self.cursor] = char;
-        self.cursor += 1;
+        pub fn is_cursor_overlapping(&self) -> Option<ascii::Char> {
+            if self.cursor < self.buffer.len() {
+                Some(self.buffer[self.cursor])
+            } else {
+                None
+            }
+        }
 
-        Ok(())
+        pub fn push(&mut self, char: ascii::Char) -> Result<()> {
+            if self.cursor >= CAP {
+                return Err(ConsoleError::LineNoCapacity.into());
+            }
+
+            assert!(self.cursor <= CAP);
+
+            self.buffer.insert(self.cursor, char);
+
+            self.cursor += 1;
+
+            Ok(())
+        }
+
+        pub fn push_overflow(&mut self, char: ascii::Char) -> Option<ascii::Char> {
+            assert!(self.cursor <= CAP);
+
+            let mut r = None;
+
+            if self.buffer.len() == CAP {
+                r.replace(self.buffer.pop().unwrap());
+            }
+
+            self.buffer.insert(self.cursor, char);
+
+            self.cursor += 1;
+
+            r
+        }
+
+        pub fn move_cursor_left(&mut self) -> Result<()> {
+            if self.cursor == 0 {
+                return Err(ConsoleError::LineNoCapacity.into());
+            }
+
+            self.cursor -= 1;
+
+            Ok(())
+        }
+
+        pub fn move_cursor_right(&mut self) -> Result<()> {
+            if self.cursor == self.buffer.len() {
+                return Err(ConsoleError::LineNoCapacity.into());
+            }
+
+            assert!(self.cursor < CAP);
+
+            self.cursor += 1;
+
+            Ok(())
+        }
+
+        pub fn shift_left(&mut self) -> Option<ascii::Char> {
+            assert!(self.cursor == 0);
+
+            if self.buffer.len() == 0 {
+                return None;
+            }
+
+            Some(self.buffer.remove(0))
+        }
+
+        pub fn shift_right(&mut self, first_char: ascii::Char) -> Option<ascii::Char> {
+            assert!(self.cursor == 0);
+
+            let mut r = None;
+
+            if self.buffer.len() == CAP {
+                r.replace(self.buffer.pop().unwrap());
+            }
+
+            self.buffer.insert(0, first_char);
+
+            r
+        }
+
+        pub fn remove(&mut self) -> Result<()> {
+            if self.cursor == 0 {
+                return Err(ConsoleError::LineNoCapacity.into());
+            }
+
+            self.cursor -= 1;
+
+            self.buffer.remove(self.cursor);
+
+            Ok(())
+        }
+
+        pub fn to_empty(&mut self) {
+            self.cursor = 0;
+        }
+
+        pub fn get_cursor(&self) -> Result<usize> {
+            if self.cursor >= CAP {
+                return Err(ConsoleError::LineNoCapacity.into());
+            }
+            Ok(self.cursor)
+        }
+
+        pub fn get_length(&self) -> usize {
+            self.buffer.len()
+        }
+
+        pub fn get_chars(&self) -> &[ascii::Char] {
+            &self.buffer
+        }
     }
 }
 
-static CONSOLE: Locked<Console> = Locked::new(Console::new());
-static IS_INITIALIZED: Once<()> = Once::new();
+static CONSOLE: Once<Locked<Console>> = Once::new();
 
 pub struct Console {
     buffer: [Line<COLUMNS>; ROWS],
     bg_color: RgbColor,
     fg_color: RgbColor,
-    cursor_row: u64,
-    cursor_column: u64,
+    cursor_row: usize,
     canvas: MaybeUninit<Arc<Mutex<Canvas>>>,
 }
 
@@ -90,42 +191,22 @@ impl fmt::Write for Console {
 }
 
 impl Console {
-    const fn new() -> Self {
-        Self {
-            buffer: [Line::<COLUMNS>::null(); ROWS],
-            bg_color: rgb(0x282828),
-            fg_color: rgb(0x282828),
-            cursor_row: 0,
-            cursor_column: 0,
-            canvas: MaybeUninit::uninit(),
-        }
-    }
-
-    fn init(
-        &mut self,
-        canvas: Arc<Mutex<Canvas>>,
-        bg_color: RgbColor,
-        fg_color: RgbColor,
-    ) -> Result<()> {
+    fn init(canvas: Arc<Mutex<Canvas>>, bg_color: RgbColor, fg_color: RgbColor) -> Result<Self> {
         canvas
             .lock()
             .fill_rect(u64vec2(0, 0), WIDTH as u64, HEIGHT as u64, bg_color)?;
 
-        *self = Self {
-            buffer: [Line::<COLUMNS>::null(); ROWS],
+        Ok(Self {
+            buffer: core::array::from_fn(|_| Line::new()),
             bg_color,
             fg_color,
             cursor_row: 0,
-            cursor_column: 0,
             canvas: MaybeUninit::new(canvas),
-        };
-
-        Ok(())
+        })
     }
 
     fn new_line(&mut self) {
-        self.cursor_column = 0;
-        if self.cursor_row < ROWS as u64 - 1 {
+        if self.cursor_row < ROWS - 1 {
             self.cursor_row += 1;
         } else {
             let move_src_rect = rectangle(
@@ -137,100 +218,209 @@ impl Console {
             self.get_writer()
                 .lock()
                 .move_rect(u64vec2(0, 0), move_src_rect);
+
+            let bg_color = self.bg_color;
             self.get_writer()
                 .lock()
                 .fill_rect(
                     u64vec2(0, (CHARACTER_HEIGHT * (ROWS - 1)) as u64),
                     WIDTH as u64,
                     CHARACTER_HEIGHT as u64,
-                    self.bg_color,
+                    bg_color,
                 )
                 .unwrap();
-            *self.buffer.last_mut().expect("console buffer is empty") = Line::<COLUMNS>::null();
+
+            self.buffer
+                .last_mut()
+                .expect("console buffer is empty")
+                .to_empty();
+        }
+    }
+
+    fn fill_row(&self, row: usize) {
+        let bg_color = self.bg_color;
+        self.get_writer()
+            .lock()
+            .fill_rect(
+                u64vec2(0, (row * CHARACTER_HEIGHT) as u64),
+                (CHARACTER_WIDTH * COLUMNS) as u64,
+                CHARACTER_HEIGHT as u64,
+                bg_color,
+            )
+            .unwrap();
+    }
+
+    fn render_row(&self, row: usize) {
+        self.fill_row(row);
+
+        let fg_color = self.fg_color;
+
+        for (i, c) in self.buffer[row].get_chars().iter().enumerate() {
+            self.get_writer()
+                .lock()
+                .write_char(
+                    u64vec2(
+                        (i * CHARACTER_WIDTH) as u64,
+                        (row * CHARACTER_HEIGHT) as u64,
+                    ),
+                    *c,
+                    fg_color,
+                )
+                .unwrap();
         }
     }
 
     fn backspace(&mut self) {
-        if self.cursor_column == 0 {
-            if self.cursor_row != 0 {
-                self.cursor_row -= 1;
-                self.buffer[self.cursor_row as usize].cursor -= 1;
-                self.cursor_column = self.buffer[self.cursor_row as usize].cursor as u64;
-            }
-        } else {
-            self.cursor_column -= 1;
-            serial_println!("{}", self.buffer[self.cursor_row as usize].cursor);
-            self.buffer[self.cursor_row as usize].cursor -= 1;
+        if self.buffer[self.cursor_row].remove().is_err() && self.cursor_row != 0 {
+            self.cursor_row -= 1;
+            self.buffer[self.cursor_row].remove().unwrap();
         }
 
-        self.get_writer()
-            .lock()
-            .fill_rect(
-                u64vec2(
-                    font::CHARACTER_WIDTH as u64 * self.cursor_column,
-                    font::CHARACTER_HEIGHT as u64 * self.cursor_row,
-                ),
-                font::CHARACTER_WIDTH as u64,
-                font::CHARACTER_HEIGHT as u64,
-                self.bg_color,
-            )
-            .unwrap();
+        let mut shift_row = self.cursor_row + 1;
+        while let Some(c) = self.buffer[shift_row].shift_left() {
+            self.buffer[shift_row - 1].push(c).unwrap();
+
+            if self.buffer[shift_row].get_length() < COLUMNS {
+                break;
+            }
+
+            shift_row += 1;
+        }
+
+        if let Ok(cc) = self.buffer[self.cursor_row].get_cursor() {
+            cc
+        } else {
+            self.new_line();
+            0
+        };
+
+        for row in self.cursor_row..=shift_row {
+            self.render_row(row);
+        }
     }
 
-    fn get_writer<'a>(&mut self) -> &'a Arc<Mutex<Canvas>> {
+    fn get_writer(&self) -> &Arc<Mutex<Canvas>> {
         (unsafe { &*self.canvas.as_ptr() }) as _
     }
 
     fn print_char(&mut self, c: Char) {
-        self.get_writer()
-            .lock()
-            .write_char(
-                u64vec2(
-                    font::CHARACTER_WIDTH as u64 * self.cursor_column,
-                    font::CHARACTER_HEIGHT as u64 * self.cursor_row,
-                ),
-                c,
-                self.fg_color,
-            )
-            .unwrap();
-
-        self.buffer[self.cursor_row as usize].push(c).unwrap();
-
-        if self.cursor_column == COLUMNS as u64 - 1 {
-            self.new_line()
+        let cursor_column = if let Ok(cc) = self.buffer[self.cursor_row].get_cursor() {
+            cc
         } else {
-            self.cursor_column += 1;
+            self.new_line();
+            0
+        };
+
+        let mut shift_row = self.cursor_row + 1;
+        let mut reached = false;
+        let mut popped: ascii::Char;
+        if let Some(popped_) = self.buffer[self.cursor_row].push_overflow(c) {
+            popped = popped_;
+
+            loop {
+                if shift_row >= ROWS {
+                    reached = true;
+                    break;
+                }
+
+                if let Some(p) = self.buffer[shift_row].shift_right(popped) {
+                    popped = p;
+                    shift_row += 1;
+                } else {
+                    break;
+                }
+            }
+        } else {
+            shift_row -= 1;
+            // これ以降poppedが使われるのはreachedが立っているときだけなので適当な値で初期化して良い
+            popped = ascii::Char::Null;
+        }
+
+        for row in self.cursor_row..=shift_row.min(ROWS) {
+            self.render_row(row);
+        }
+
+        if reached {
+            self.new_line();
+            self.buffer.last_mut().unwrap().push(popped).unwrap();
         }
     }
 
     fn print_cursor(&mut self) {
+        let cursor_column = if let Ok(cc) = self.buffer[self.cursor_row].get_cursor() {
+            cc
+        } else {
+            self.new_line();
+            0
+        };
+        let cursor_row = self.cursor_row;
+        let fg_color = self.fg_color;
+        let bg_color = self.bg_color;
+
         self.get_writer()
             .lock()
             .fill_rect(
                 u64vec2(
-                    self.cursor_column * CHARACTER_WIDTH as u64,
-                    self.cursor_row * CHARACTER_HEIGHT as u64,
+                    (cursor_column * CHARACTER_WIDTH) as u64,
+                    (cursor_row * CHARACTER_HEIGHT) as u64,
                 ),
-                CHARACTER_WIDTH as u64 / 4,
+                CHARACTER_WIDTH as u64,
                 CHARACTER_HEIGHT as u64,
-                self.fg_color,
+                fg_color,
             )
             .unwrap();
+        if let Some(c) = self.buffer[self.cursor_row].is_cursor_overlapping() {
+            self.get_writer()
+                .lock()
+                .write_char(
+                    u64vec2(
+                        (cursor_column * CHARACTER_WIDTH) as u64,
+                        (cursor_row * CHARACTER_HEIGHT) as u64,
+                    ),
+                    c,
+                    bg_color,
+                )
+                .unwrap();
+        }
     }
 
     fn erase_cursor(&mut self) {
+        let cursor_column = if let Ok(cc) = self.buffer[self.cursor_row].get_cursor() {
+            cc
+        } else {
+            self.new_line();
+            0
+        };
+        let cursor_row = self.cursor_row;
+        let bg_color = self.bg_color;
+        let fg_color = self.fg_color;
+
         self.get_writer()
             .lock()
             .fill_rect(
                 u64vec2(
-                    self.cursor_column * CHARACTER_WIDTH as u64,
-                    self.cursor_row * CHARACTER_HEIGHT as u64,
+                    (cursor_column * CHARACTER_WIDTH) as u64,
+                    (cursor_row * CHARACTER_HEIGHT) as u64,
                 ),
-                CHARACTER_WIDTH as u64 / 4,
+                CHARACTER_WIDTH as u64,
                 CHARACTER_HEIGHT as u64,
-                self.bg_color,
+                bg_color,
             )
             .unwrap();
+
+        if let Some(c) = self.buffer[self.cursor_row].is_cursor_overlapping() {
+            self.get_writer()
+                .lock()
+                .write_char(
+                    u64vec2(
+                        (cursor_column * CHARACTER_WIDTH) as u64,
+                        (cursor_row * CHARACTER_HEIGHT) as u64,
+                    ),
+                    c,
+                    fg_color,
+                )
+                .unwrap();
+        }
     }
 
     fn print(&mut self, s: &str) {
@@ -246,37 +436,70 @@ impl Console {
         }
         self.print_cursor();
     }
+
+    fn move_cursor_left(&mut self) {
+        self.erase_cursor();
+
+        if self.buffer[self.cursor_row].move_cursor_left().is_err() && self.cursor_row != 0 {
+            self.cursor_row -= 1;
+            self.buffer[self.cursor_row].move_cursor_left().unwrap();
+        }
+
+        self.print_cursor();
+    }
+
+    fn move_cursor_right(&mut self) {
+        self.erase_cursor();
+
+        if self.buffer[self.cursor_row].move_cursor_right().is_err() && self.cursor_row != ROWS - 1
+        {
+            self.cursor_row += 1;
+        }
+
+        self.print_cursor();
+    }
 }
 
 pub fn init(canvas: Arc<Mutex<Canvas>>, bg_color: RgbColor, fg_color: RgbColor) -> Result<()> {
-    let mut console = CONSOLE.lock();
-    console.init(canvas, bg_color, fg_color)?;
-    IS_INITIALIZED.call_once(|| ());
+    let console = Console::init(canvas, bg_color, fg_color)?;
+    CONSOLE.call_once(|| Locked::new(console));
     Ok(())
 }
 
 pub fn is_initialized() -> bool {
-    IS_INITIALIZED.is_completed()
+    CONSOLE.is_completed()
 }
 
-pub fn get_console_reference() -> &'static Locked<Console> {
-    &CONSOLE
+fn get_locked_console<'a>() -> &'a Locked<Console> {
+    let console = unsafe { CONSOLE.get_unchecked() };
+
+    #[cfg(feature = "init_check")]
+    let console = CONSOLE.get().expect("Console is not initialized.");
+
+    console
+}
+
+pub fn move_cursor_left() {
+    without_interrupts(|| {
+        get_locked_console().lock().move_cursor_left();
+    });
+}
+
+pub fn move_cursor_right() {
+    without_interrupts(|| {
+        get_locked_console().lock().move_cursor_right();
+    })
 }
 
 pub fn _print(args: ::core::fmt::Arguments) {
-    // #[cfg(feature = "logging_in_interrupt_handler")]
-    // x86_64::instructions::interrupts::disable();
-
     without_interrupts(|| {
         use core::fmt::Write;
-        get_console_reference()
+
+        get_locked_console()
             .lock()
             .write_fmt(args)
             .expect("Failed to print string to console.");
     });
-
-    // #[cfg(feature = "logging_in_interrupt_handler")]
-    // x86_64::instructions::interrupts::enable();
 }
 
 #[macro_export]

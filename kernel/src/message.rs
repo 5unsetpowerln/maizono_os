@@ -1,5 +1,6 @@
 use alloc::collections::VecDeque;
 use glam::{I64Vec2, U64Vec2};
+use pc_keyboard::DecodedKey;
 use spin::Mutex;
 
 use crate::{device::ps2::keyboard::KeyboardError, timer::Timer};
@@ -10,9 +11,26 @@ pub enum Message {
     PS2KeyboardInterrupt(Result<u8, KeyboardError>),
     LocalAPICTimerInterrupt,
     TimerTimeout(Timer),
-    Layer(LayerOperation),
-    LayerFinish,
+    DrawLayer,
+    // Layer(LayerOperation),
+    // LayerFinish,
+    KeyInput(DecodedKey),
 }
+
+// #[derive(Debug, Clone, Copy)]
+// pub struct KeyInput {
+//     decoded_key: DecodedKey,
+//     src_task_id: u64,
+// }
+
+// impl KeyInput {
+//     pub fn new(decoded_key: DecodedKey, src_task_id: u64) -> Self {
+//         Self {
+//             decoded_key,
+//             src_task_id,
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone, Copy)]
 pub struct LayerOperation {

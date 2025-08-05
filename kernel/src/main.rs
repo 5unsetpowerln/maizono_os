@@ -29,6 +29,7 @@ mod qemu;
 mod segment;
 mod serial;
 mod task;
+mod terminal;
 mod timer;
 mod types;
 mod util;
@@ -53,7 +54,10 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::graphic::{create_canvas_and_layer, layer};
 use task::TaskManagerTrait;
 
-use self::task::TASK_MANAGER;
+use self::{
+    graphic::layer::LAYER_MANAGER,
+    task::{TASK_MANAGER, Task},
+};
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();
@@ -144,6 +148,13 @@ fn init_graphic(boot_info: &BootInfo) -> LayerIDs {
     }
 }
 
+pub struct TaskIDs {
+    terminal_task_id: u64,
+    draw_layer_task_id: u64,
+}
+
+pub static TASK_IDS: Once<TaskIDs> = Once::new();
+
 fn main(boot_info: &BootInfo) -> ! {
     logger::init();
 
@@ -168,34 +179,42 @@ fn main(boot_info: &BootInfo) -> ! {
 
         timer::init_lagic_timer();
         task::init();
+        terminal::init();
     });
 
-    let (task_b_id, _main_task_id) = without_interrupts(|| {
+    without_interrupts(|| {
         let mut task_manager = task::TASK_MANAGER.wait().lock();
 
         let main_task_id = task_manager.get_current_task_id();
 
-        let task_b_id = task_manager.new_task().init_context(task_b, 45).get_id();
-        task_manager
-            .wakeup(task_b_id, None)
-            .expect("Failed to wakeup a task.");
-        let id = task_manager
+        let terminal_task_id = task_manager
             .new_task()
-            .init_context(task_idle, 0xdeadbeef)
+            .init_context(terminal::terminal_task, 45)
             .get_id();
         task_manager
-            .wakeup(id, None)
-            .expect("Failed to wakeup a task.");
-        let id = task_manager
-            .new_task()
-            .init_context(task_idle, 0xcafebabe)
-            .get_id();
-        task_manager
-            .wakeup(id, None)
-            .expect("Failed to wakeup a task.");
+            .wakeup(terminal_task_id, None)
+            .expect("Failed to wake up a task.");
 
-        (task_b_id, main_task_id)
+        let draw_layer_task_id = task_manager
+            .new_task()
+            .init_context(draw_layer_task, 56)
+            .get_id();
+        task_manager
+            .wakeup(draw_layer_task_id, None)
+            .expect("Failed to wake up a task.");
+
+        let idle_task_id = task_manager.new_task().init_context(task_idle, 54).get_id();
+        task_manager
+            .wakeup(idle_task_id, None)
+            .expect("Failed to wake up a task");
+
+        TASK_IDS.call_once(|| TaskIDs {
+            terminal_task_id,
+            draw_layer_task_id,
+        });
     });
+
+    let terminal_task_id = TASK_IDS.wait().terminal_task_id;
 
     #[cfg(test)]
     test_main();
@@ -215,11 +234,21 @@ fn main(boot_info: &BootInfo) -> ! {
                 message::Message::PS2KeyboardInterrupt(result) => {
                     if let Ok(scancode) = result {
                         if let Some(key_code) = ps2::read_key_event(scancode) {
-                            match key_code {
-                                DecodedKey::Unicode(character) => kprint!("{}", character),
-                                DecodedKey::RawKey(key) => kprint!("{:?}", key),
-                            }
+                            without_interrupts(|| {
+                                TASK_MANAGER
+                                    .wait()
+                                    .lock()
+                                    .send_message_to_task(
+                                        terminal_task_id,
+                                        &message::Message::KeyInput(key_code),
+                                    )
+                                    .unwrap();
+                            });
+                        } else {
+                            // todo!()
                         }
+                    } else {
+                        // todo!()
                     }
                 }
                 message::Message::LocalAPICTimerInterrupt => {}
@@ -229,20 +258,7 @@ fn main(boot_info: &BootInfo) -> ! {
                 message::Message::PS2MouseInterrupt => {
                     error!("PS2 mouse is disabled but the interrupt occured.");
                 }
-                message::Message::Layer(operation) => {
-                    layer::process_layer_operation(&operation);
-                    without_interrupts(|| {
-                        TASK_MANAGER
-                            .wait()
-                            .lock()
-                            .send_message_to_task(
-                                operation.src_task_id,
-                                &message::Message::LayerFinish,
-                            )
-                            .unwrap();
-                    });
-                }
-                message::Message::LayerFinish => {}
+                _ => {}
             }
         } else {
             task::TASK_MANAGER
@@ -256,6 +272,25 @@ fn main(boot_info: &BootInfo) -> ! {
     }
 }
 
+fn draw_layer_task(task_id: u64, _data: u64) {
+    loop {
+        if let Some(message::Message::DrawLayer) = without_interrupts(|| {
+            TASK_MANAGER
+                .wait()
+                .lock()
+                .receive_message_from_task(task_id)
+                .unwrap()
+        }) {
+            LAYER_MANAGER.lock().draw();
+        } else {
+            TASK_MANAGER.wait().sleep(task_id).unwrap();
+            continue;
+        }
+
+        unsafe { asm!("hlt") }
+    }
+}
+
 fn task_idle(task_id: u64, data: u64) {
     info!("TaskIdle: task_id={task_id}, data={data}");
     loop {
@@ -265,56 +300,56 @@ fn task_idle(task_id: u64, data: u64) {
     }
 }
 
-fn task_b(task_id: u64, data: u64) {
-    info!("TaskB: task_id={task_id}, data={data}");
+// fn task_b(task_id: u64, data: u64) {
+//     info!("TaskB: task_id={task_id}, data={data}");
 
-    let current_task_id = without_interrupts(|| TASK_MANAGER.wait().lock().get_current_task_id());
-    let console_layer_id = LAYER_IDS
-        .get()
-        .expect("LAYER_IDS is not initialized.")
-        .console_layer_id;
+//     let current_task_id = without_interrupts(|| TASK_MANAGER.wait().lock().get_current_task_id());
+//     let console_layer_id = LAYER_IDS
+//         .get()
+//         .expect("LAYER_IDS is not initialized.")
+//         .console_layer_id;
 
-    loop {
-        info!("TaskB.");
+//     loop {
+//         // info!("TaskB.");
 
-        let layer_operation = message::LayerOperation::new(
-            message::LayerOperationKind::Draw,
-            console_layer_id,
-            current_task_id,
-        );
-        let msg = message::Message::Layer(layer_operation);
-        without_interrupts(|| {
-            TASK_MANAGER
-                .wait()
-                .lock()
-                .send_message_to_task(1, &msg)
-                .unwrap();
-        });
+//         let layer_operation = message::LayerOperation::new(
+//             message::LayerOperationKind::Draw,
+//             console_layer_id,
+//             current_task_id,
+//         );
+//         let msg = message::Message::Layer(layer_operation);
+//         without_interrupts(|| {
+//             TASK_MANAGER
+//                 .wait()
+//                 .lock()
+//                 .send_message_to_task(1, &msg)
+//                 .unwrap();
+//         });
 
-        loop {
-            x86_64::instructions::interrupts::disable();
-            if let Some(msg) = TASK_MANAGER
-                .wait()
-                .lock()
-                .receive_message_from_task(current_task_id)
-                .unwrap()
-            {
-                if let message::Message::LayerFinish = msg {
-                    x86_64::instructions::interrupts::enable();
-                    break;
-                }
-            } else {
-                x86_64::instructions::interrupts::enable();
-                TASK_MANAGER.wait().sleep(current_task_id).unwrap();
-                continue;
-            }
+//         loop {
+//             x86_64::instructions::interrupts::disable();
+//             if let Some(msg) = TASK_MANAGER
+//                 .wait()
+//                 .lock()
+//                 .receive_message_from_task(current_task_id)
+//                 .unwrap()
+//             {
+//                 if let message::Message::LayerFinish = msg {
+//                     x86_64::instructions::interrupts::enable();
+//                     break;
+//                 }
+//             } else {
+//                 x86_64::instructions::interrupts::enable();
+//                 TASK_MANAGER.wait().sleep(current_task_id).unwrap();
+//                 continue;
+//             }
 
-            unsafe {
-                asm!("hlt");
-            }
-        }
-    }
-}
+//             unsafe {
+//                 asm!("hlt");
+//             }
+//         }
+//     }
+// }
 
 trait Testable {
     fn run(&self);
