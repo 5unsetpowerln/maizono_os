@@ -300,57 +300,6 @@ fn task_idle(task_id: u64, data: u64) {
     }
 }
 
-// fn task_b(task_id: u64, data: u64) {
-//     info!("TaskB: task_id={task_id}, data={data}");
-
-//     let current_task_id = without_interrupts(|| TASK_MANAGER.wait().lock().get_current_task_id());
-//     let console_layer_id = LAYER_IDS
-//         .get()
-//         .expect("LAYER_IDS is not initialized.")
-//         .console_layer_id;
-
-//     loop {
-//         // info!("TaskB.");
-
-//         let layer_operation = message::LayerOperation::new(
-//             message::LayerOperationKind::Draw,
-//             console_layer_id,
-//             current_task_id,
-//         );
-//         let msg = message::Message::Layer(layer_operation);
-//         without_interrupts(|| {
-//             TASK_MANAGER
-//                 .wait()
-//                 .lock()
-//                 .send_message_to_task(1, &msg)
-//                 .unwrap();
-//         });
-
-//         loop {
-//             x86_64::instructions::interrupts::disable();
-//             if let Some(msg) = TASK_MANAGER
-//                 .wait()
-//                 .lock()
-//                 .receive_message_from_task(current_task_id)
-//                 .unwrap()
-//             {
-//                 if let message::Message::LayerFinish = msg {
-//                     x86_64::instructions::interrupts::enable();
-//                     break;
-//                 }
-//             } else {
-//                 x86_64::instructions::interrupts::enable();
-//                 TASK_MANAGER.wait().sleep(current_task_id).unwrap();
-//                 continue;
-//             }
-
-//             unsafe {
-//                 asm!("hlt");
-//             }
-//         }
-//     }
-// }
-
 trait Testable {
     fn run(&self);
 }
