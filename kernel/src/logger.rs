@@ -1,10 +1,13 @@
 use alloc::string::ToString;
 use alloc::{format, string::String};
 use log::LevelFilter;
+use spin::rwlock::RwLock;
 
 use crate::{graphic::console, kprintln, serial_println};
 
 pub struct Logger;
+
+pub static CONSOLE_ENABLED: RwLock<bool> = RwLock::new(true);
 
 impl log::Log for Logger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
@@ -38,7 +41,7 @@ impl log::Log for Logger {
             let msg = format!("{}{}{}", level_msg, file_msg, content_msg);
 
             serial_println!("{}", msg);
-            if console::is_initialized() {
+            if console::is_initialized() && *CONSOLE_ENABLED.read() {
                 kprintln!("{}", msg);
             }
         }

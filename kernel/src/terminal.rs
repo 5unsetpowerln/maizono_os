@@ -2,19 +2,16 @@ use core::ascii::{self, Char};
 
 use alloc::string::String;
 use alloc::string::ToString;
-use alloc::vec;
 use core::arch::asm;
-use log::debug;
-use log::info;
 use pc_keyboard::{DecodedKey, KeyCode};
 use spin::mutex::Mutex;
 use spin::once::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::LAYER_IDS;
 use crate::TASK_IDS;
 use crate::graphic::console;
 use crate::kprint;
+use crate::logger;
 use crate::message;
 use crate::serial_println;
 use crate::task::TASK_MANAGER;
@@ -32,33 +29,28 @@ impl Terminal {
         Self {
             line_buffer: String::new(),
             cursor: 0,
-            display_line_buffer: String::new(),
+            display_line_buffer: "$ ".to_string(),
             displayed_count: 0,
         }
     }
 
     pub fn input_key(&mut self, key: DecodedKey) {
         match key {
-            DecodedKey::Unicode(character) => {
-                // 表示用バッファには文字を区別せずにそのまま入力していく。Consoleがバックスペースなどを処理してくれるから
-                // self.display_line_buffer.push(character);
-
-                match character.as_ascii().unwrap() {
-                    ascii::Char::Backspace => {
-                        if self.cursor > 0 {
-                            self.cursor -= 1;
-                            self.line_buffer.remove(self.cursor);
-                            self.display_line_buffer.push(character);
-                        }
-                    }
-                    ascii::Char::LineFeed => {}
-                    _ => {
-                        self.line_buffer.insert(self.cursor, character);
-                        self.cursor += 1;
+            DecodedKey::Unicode(character) => match character.as_ascii().unwrap() {
+                ascii::Char::Backspace => {
+                    if self.cursor > 0 {
+                        self.cursor -= 1;
+                        self.line_buffer.remove(self.cursor);
                         self.display_line_buffer.push(character);
                     }
                 }
-            }
+                ascii::Char::LineFeed => {}
+                _ => {
+                    self.line_buffer.insert(self.cursor, character);
+                    self.cursor += 1;
+                    self.display_line_buffer.push(character);
+                }
+            },
             DecodedKey::RawKey(key) => match key {
                 KeyCode::ArrowLeft => {
                     if self.cursor > 0 {
@@ -95,7 +87,12 @@ pub fn init() {
 }
 
 pub fn terminal_task(task_id: u64, _data: u64) {
+    without_interrupts(|| {
+        *logger::CONSOLE_ENABLED.write() = false;
+    });
+
     let draw_layer_task_id = TASK_IDS.wait().draw_layer_task_id;
+    TERMINAL.wait().lock().display_on_console();
 
     loop {
         if let Some(message::Message::KeyInput(decoded_key)) = without_interrupts(|| {
