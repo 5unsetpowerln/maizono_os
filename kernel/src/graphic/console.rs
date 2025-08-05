@@ -152,10 +152,6 @@ mod line {
             Ok(())
         }
 
-        pub fn to_empty(&mut self) {
-            self.cursor = 0;
-        }
-
         pub fn get_cursor(&self) -> Result<usize> {
             if self.cursor >= CAP {
                 return Err(ConsoleError::LineNoCapacity.into());
@@ -169,6 +165,11 @@ mod line {
 
         pub fn get_chars(&self) -> &[ascii::Char] {
             &self.buffer
+        }
+
+        pub fn clear(&mut self) {
+            self.buffer.clear();
+            self.cursor = 0;
         }
     }
 }
@@ -233,7 +234,7 @@ impl Console {
             self.buffer
                 .last_mut()
                 .expect("console buffer is empty")
-                .to_empty();
+                .clear();
         }
     }
 
@@ -277,14 +278,19 @@ impl Console {
         }
 
         let mut shift_row = self.cursor_row + 1;
-        while let Some(c) = self.buffer[shift_row].shift_left() {
-            self.buffer[shift_row - 1].push(c).unwrap();
 
-            if self.buffer[shift_row].get_length() < COLUMNS {
-                break;
+        if shift_row < ROWS {
+            while let Some(c) = self.buffer[shift_row].shift_left() {
+                self.buffer[shift_row - 1].push(c).unwrap();
+
+                if self.buffer[shift_row].get_length() < COLUMNS {
+                    break;
+                }
+
+                shift_row += 1;
             }
-
-            shift_row += 1;
+        } else {
+            shift_row = self.cursor_row;
         }
 
         if let Ok(cc) = self.buffer[self.cursor_row].get_cursor() {
@@ -458,6 +464,42 @@ impl Console {
 
         self.print_cursor();
     }
+
+    fn clear(&mut self) {
+        for line in self.buffer.as_mut() {
+            line.clear();
+        }
+
+        self.cursor_row = 0;
+
+        let mut writer = self.get_writer().lock();
+
+        writer
+            .fill_rect(
+                u64vec2(0, 0),
+                (CHARACTER_WIDTH * COLUMNS) as u64,
+                (CHARACTER_HEIGHT * ROWS) as u64,
+                self.bg_color,
+            )
+            .unwrap();
+    }
+
+    fn clear_current_line(&mut self) {
+        self.buffer[self.cursor_row].clear();
+
+        let mut writer = self.get_writer().lock();
+
+        let cursor_row = self.cursor_row;
+
+        writer
+            .fill_rect(
+                u64vec2(0, (CHARACTER_HEIGHT * cursor_row) as u64),
+                (CHARACTER_WIDTH * COLUMNS) as u64,
+                CHARACTER_HEIGHT as u64,
+                self.bg_color,
+            )
+            .unwrap();
+    }
 }
 
 pub fn init(canvas: Arc<Mutex<Canvas>>, bg_color: RgbColor, fg_color: RgbColor) -> Result<()> {
@@ -489,6 +531,18 @@ pub fn move_cursor_right() {
     without_interrupts(|| {
         get_locked_console().lock().move_cursor_right();
     })
+}
+
+pub fn clear() {
+    without_interrupts(|| {
+        get_locked_console().lock().clear();
+    })
+}
+
+pub fn clear_current_line() {
+    without_interrupts(|| {
+        get_locked_console().lock().clear_current_line();
+    });
 }
 
 pub fn _print(args: ::core::fmt::Arguments) {

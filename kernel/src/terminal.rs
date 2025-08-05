@@ -1,7 +1,10 @@
 use core::ascii::{self, Char};
 
+use alloc::collections::VecDeque;
+use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
+use alloc::vec::Vec;
 use core::arch::asm;
 use pc_keyboard::{DecodedKey, KeyCode};
 use spin::mutex::Mutex;
@@ -11,26 +14,37 @@ use x86_64::instructions::interrupts::without_interrupts;
 use crate::TASK_IDS;
 use crate::graphic::console;
 use crate::kprint;
+use crate::kprintln;
 use crate::logger;
 use crate::message;
 use crate::serial_println;
 use crate::task::TASK_MANAGER;
 use crate::task::TaskManagerTrait;
 
+const HISTORY_SIZE: usize = 8;
+const PROMPT: &str = "$ ";
+
 pub struct Terminal {
     line_buffer: String,
     cursor: usize,
     display_line_buffer: String,
     displayed_count: usize,
+    history: VecDeque<String>,
+    history_idx: isize,
 }
 
 impl Terminal {
     pub fn new() -> Self {
+        let mut history = VecDeque::new();
+        history.resize(HISTORY_SIZE, String::new());
+
         Self {
             line_buffer: String::new(),
             cursor: 0,
             display_line_buffer: "$ ".to_string(),
             displayed_count: 0,
+            history,
+            history_idx: -1,
         }
     }
 
@@ -44,7 +58,15 @@ impl Terminal {
                         self.display_line_buffer.push(character);
                     }
                 }
-                ascii::Char::LineFeed => {}
+                ascii::Char::LineFeed => {
+                    self.execute_line();
+
+                    self.history.pop_back();
+                    self.history.push_front(self.line_buffer.clone());
+                    self.history_idx = -1;
+
+                    self.reset_input();
+                }
                 _ => {
                     self.line_buffer.insert(self.cursor, character);
                     self.cursor += 1;
@@ -64,8 +86,50 @@ impl Terminal {
                         console::move_cursor_right();
                     }
                 }
+                KeyCode::ArrowUp => {
+                    self.history_up_or_down(1);
+                }
+                KeyCode::ArrowDown => {
+                    self.history_up_or_down(-1);
+                }
                 _ => {}
             },
+        }
+    }
+
+    pub fn history_up_or_down(&mut self, direction: i8) {
+        let prev_history_idx = self.history_idx;
+
+        if direction > 0
+            && 0 <= self.history_idx + 1
+            && self.history_idx + 1 < (HISTORY_SIZE as isize)
+        {
+            self.history_idx += 1;
+        }
+
+        if direction < 0 && 0 <= self.history_idx {
+            self.history_idx -= 1;
+        }
+
+        if self.history_idx == -1 {
+            console::clear_current_line();
+            self.reset_input();
+            return;
+        }
+
+        if let Some(history) = self.history.get(self.history_idx as usize) {
+            let history = history.clone();
+
+            if history.is_empty() {
+                self.history_idx = prev_history_idx;
+                return;
+            }
+
+            console::clear_current_line();
+            self.line_buffer = history;
+            self.display_line_buffer = format!("$ {}", self.line_buffer);
+            self.cursor = self.line_buffer.chars().count();
+            self.displayed_count = 0;
         }
     }
 
@@ -73,10 +137,56 @@ impl Terminal {
         if self.displayed_count < self.display_line_buffer.chars().count() {
             let diff = self.display_line_buffer[self.displayed_count..].to_string();
             kprint!("{}", diff);
-            serial_println!("{:?}", diff);
-            serial_println!("{}", self.displayed_count);
             self.displayed_count += diff.chars().count();
         }
+    }
+
+    pub fn reset_input(&mut self) {
+        self.cursor = 0;
+        self.display_line_buffer = "$ ".to_string();
+        self.line_buffer.clear();
+        self.displayed_count = 0;
+    }
+
+    // コマンドが認識されたら true, コマンドが認識されなかったら (例えば空白だけ) false
+    pub fn execute_line(&mut self) -> bool {
+        let parts = self.line_buffer.as_str().split(' ').collect::<Vec<&str>>();
+
+        let command = parts.iter().find(|&s| !s.is_empty());
+
+        if command.is_none() {
+            kprintln!("");
+            kprintln!("");
+            return false;
+        }
+
+        let command = *command.unwrap();
+
+        match command {
+            "echo" => {
+                let args_index = self.line_buffer.as_str().find(command).unwrap();
+                let args = self
+                    .line_buffer
+                    .as_str()
+                    .get(args_index + command.len()..)
+                    .unwrap_or("")
+                    .trim();
+
+                kprintln!("");
+                kprintln!("{args}");
+                kprintln!("");
+            }
+            "clear" => {
+                console::clear();
+            }
+            _ => {
+                kprintln!("");
+                kprintln!("No such command: {command}");
+                kprintln!("");
+            }
+        }
+
+        true
     }
 }
 
@@ -104,7 +214,8 @@ pub fn terminal_task(task_id: u64, _data: u64) {
         }) {
             let mut terminal = TERMINAL.wait().lock();
             terminal.input_key(decoded_key);
-            serial_println!("line_buffer   : {:?}", terminal.line_buffer);
+            serial_println!("line_buffer: {:?}", terminal.line_buffer);
+            serial_println!("display_line_buffer: {:?}", terminal.display_line_buffer);
             terminal.display_on_console();
         } else {
             without_interrupts(|| {
