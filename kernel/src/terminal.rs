@@ -12,6 +12,7 @@ use spin::once::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::TASK_IDS;
+use crate::fat;
 use crate::graphic::console;
 use crate::kprint;
 use crate::kprintln;
@@ -173,6 +174,37 @@ impl Terminal {
 
                 kprintln!("");
                 kprintln!("{args}");
+                kprintln!("");
+            }
+            "ls" => {
+                kprintln!("");
+                let boot_volume_image = fat::get_boot_volume_image();
+
+                let root_dir_entries = fat::get_cluster_addr(boot_volume_image.root_cluster as u64)
+                    as *const fat::DirectoryEntry;
+
+                let entries_per_cluster = (boot_volume_image.bytes_per_sector as usize
+                    / size_of::<fat::DirectoryEntry>())
+                    * boot_volume_image.sectors_per_cluster as usize;
+
+                for i in 0..entries_per_cluster {
+                    let entry = unsafe { &*root_dir_entries.add(i) };
+                    if entry.name[0] == ascii::Char::Null {
+                        break;
+                    } else if entry.name[0].to_u8() == 0xe5 {
+                        continue;
+                    } else if let fat::Attribute::LongName = entry.attr {
+                        continue;
+                    }
+
+                    kprintln!("{}", entry.get_name());
+                    // if entry.name[8].to_u8() != 0 {
+                    //     // kprintln!("{}.{}", entry.name[0..8].as_str(), entry.name[8..].as_str());
+                    // } else {
+                    //     kprintln!("{}", entry.name[0..8].as_str());
+                    // }
+                }
+
                 kprintln!("");
             }
             "clear" => {
