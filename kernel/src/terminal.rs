@@ -178,17 +178,8 @@ impl Terminal {
             }
             "ls" => {
                 kprintln!("");
-                let boot_volume_image = fat::get_boot_volume_image();
 
-                let root_dir_entries = fat::get_cluster_addr(boot_volume_image.root_cluster as u64)
-                    as *const fat::DirectoryEntry;
-
-                let entries_per_cluster = (boot_volume_image.bytes_per_sector as usize
-                    / size_of::<fat::DirectoryEntry>())
-                    * boot_volume_image.sectors_per_cluster as usize;
-
-                for i in 0..entries_per_cluster {
-                    let entry = unsafe { &*root_dir_entries.add(i) };
+                for entry in fat::get_root_dir_entries() {
                     if entry.name[0] == ascii::Char::Null {
                         break;
                     } else if entry.name[0].to_u8() == 0xe5 {
@@ -198,11 +189,6 @@ impl Terminal {
                     }
 
                     kprintln!("{}", entry.get_name());
-                    // if entry.name[8].to_u8() != 0 {
-                    //     // kprintln!("{}.{}", entry.name[0..8].as_str(), entry.name[8..].as_str());
-                    // } else {
-                    //     kprintln!("{}", entry.name[0..8].as_str());
-                    // }
                 }
 
                 kprintln!("");

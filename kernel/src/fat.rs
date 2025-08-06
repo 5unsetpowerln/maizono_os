@@ -1,5 +1,6 @@
-use alloc::format;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use alloc::{format, vec};
 use core::ascii;
 use spin::once::Once;
 
@@ -116,6 +117,7 @@ impl BPB {
 }
 
 pub static BOOT_VOLUME_IMAGE: Once<&'static BPB> = Once::new();
+pub static ROOT_DIR_ENTRIES: Once<Vec<&'static DirectoryEntry>> = Once::new();
 
 pub fn init(image_volume: &'static [u8]) {
     let bpb_size = size_of::<BPB>();
@@ -127,21 +129,37 @@ pub fn init(image_volume: &'static [u8]) {
     let bpb_ref = unsafe { &*bpb_ptr };
 
     BOOT_VOLUME_IMAGE.call_once(|| bpb_ref);
+    ROOT_DIR_ENTRIES.call_once(get_root_dir_entries_internal);
 }
 
-// pub fn get_root_dir_entries() {
-//     let boot_volume_image = get_boot_volume_image();
+pub fn get_root_dir_entries() -> &'static Vec<&'static DirectoryEntry> {
+    let r = unsafe { ROOT_DIR_ENTRIES.get_unchecked() };
 
-//     let ptr = get_cluster_addr(boot_volume_image.root_cluster as u64) as *const DirectoryEntry;
+    #[cfg(feature = "init_check")]
+    let r = ROOT_DIR_ENTRIES.get().expect("Uninitialized.");
 
-//     let entries_per_cluster = (boot_volume_image.bytes_per_sector as usize
-//         / size_of::<DirectoryEntry>())
-//         * boot_volume_image.sectors_per_cluster as usize;
+    r
+}
 
-//     for i in 0..entries_per_cluster {
-//         let entry = unsafe { &*ptr.add(i) };
-//     }
-// }
+fn get_root_dir_entries_internal() -> Vec<&'static DirectoryEntry> {
+    let boot_volume_image = get_boot_volume_image();
+
+    let root_dir_entries =
+        get_cluster_addr(boot_volume_image.root_cluster as u64) as *const DirectoryEntry;
+
+    let entries_per_cluster = (boot_volume_image.bytes_per_sector as usize
+        / size_of::<DirectoryEntry>())
+        * boot_volume_image.sectors_per_cluster as usize;
+
+    let mut entries = vec![];
+
+    for i in 0..entries_per_cluster {
+        let entry = unsafe { &*root_dir_entries.add(i) };
+        entries.push(entry);
+    }
+
+    entries
+}
 
 pub fn get_sector_by_cluster<T>(cluster: u64) -> &'static T {
     let ptr = get_cluster_addr(cluster) as *const T;
