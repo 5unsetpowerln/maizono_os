@@ -9,6 +9,7 @@
 #![feature(naked_functions)]
 #![feature(ptr_as_ref_unchecked)]
 #![feature(default_field_values)]
+
 extern crate alloc;
 
 mod acpi;

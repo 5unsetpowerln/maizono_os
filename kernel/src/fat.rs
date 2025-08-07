@@ -118,17 +118,23 @@ impl BPB {
 
 pub static BOOT_VOLUME_IMAGE: Once<&'static BPB> = Once::new();
 pub static ROOT_DIR_ENTRIES: Once<Vec<&'static DirectoryEntry>> = Once::new();
+pub static BYTES_PER_CLUSTER: Once<usize> = Once::new();
+const END_OF_CLUSTER_CHAIN: u32 = 0xfffffff;
+const BAD_CLUSTER: u32 = 0xffffff7;
 
 pub fn init(image_volume: &'static [u8]) {
     let bpb_size = size_of::<BPB>();
 
     assert!(image_volume.len() >= bpb_size);
 
-    let bpb_ptr = image_volume.as_ptr() as *const BPB;
+    let boot_volume_image_ptr = image_volume.as_ptr() as *const BPB;
 
-    let bpb_ref = unsafe { &*bpb_ptr };
+    let boot_volume_image = unsafe { &*boot_volume_image_ptr };
 
-    BOOT_VOLUME_IMAGE.call_once(|| bpb_ref);
+    BYTES_PER_CLUSTER.call_once(|| {
+        boot_volume_image.bytes_per_sector as usize * boot_volume_image.sectors_per_cluster as usize
+    });
+    BOOT_VOLUME_IMAGE.call_once(|| boot_volume_image);
     ROOT_DIR_ENTRIES.call_once(get_root_dir_entries_internal);
 }
 
@@ -141,15 +147,35 @@ pub fn get_root_dir_entries() -> &'static Vec<&'static DirectoryEntry> {
     r
 }
 
+pub fn get_boot_volume_image() -> &'static BPB {
+    let r = *unsafe { BOOT_VOLUME_IMAGE.get_unchecked() };
+
+    #[cfg(feature = "init_check")]
+    let r = *BOOT_VOLUME_IMAGE.get().expect("Uninitialized");
+
+    r
+}
+
+pub fn get_bytes_per_cluster() -> usize {
+    let r = *unsafe { BYTES_PER_CLUSTER.get_unchecked() };
+
+    #[cfg(feature = "init_check")]
+    let r = *BYTES_PER_CLUSTER.get().expect("Uninitialized");
+
+    r
+}
+
 fn get_root_dir_entries_internal() -> Vec<&'static DirectoryEntry> {
+    // エントリの配列が複数のクラスタにまたがっている場合に対応できていない。
+
     let boot_volume_image = get_boot_volume_image();
 
     let root_dir_entries =
-        get_cluster_addr(boot_volume_image.root_cluster as u64) as *const DirectoryEntry;
+        get_cluster_addr(boot_volume_image.root_cluster) as *const DirectoryEntry;
 
-    let entries_per_cluster = (boot_volume_image.bytes_per_sector as usize
-        / size_of::<DirectoryEntry>())
-        * boot_volume_image.sectors_per_cluster as usize;
+    let entries_per_sector =
+        boot_volume_image.bytes_per_sector as usize / size_of::<DirectoryEntry>();
+    let entries_per_cluster = entries_per_sector * boot_volume_image.sectors_per_cluster as usize;
 
     let mut entries = vec![];
 
@@ -161,28 +187,81 @@ fn get_root_dir_entries_internal() -> Vec<&'static DirectoryEntry> {
     entries
 }
 
-pub fn get_sector_by_cluster<T>(cluster: u64) -> &'static T {
-    let ptr = get_cluster_addr(cluster) as *const T;
-    unsafe { &*ptr }
+pub fn find_file(name: &[ascii::Char], mut dir_cluster: u32) -> Option<&'static DirectoryEntry> {
+    let boot_volume_image = get_boot_volume_image();
+
+    if dir_cluster == 0 {
+        dir_cluster = boot_volume_image.root_cluster;
+    }
+
+    while dir_cluster != END_OF_CLUSTER_CHAIN {
+        let dir = get_sector_by_cluster::<DirectoryEntry>(dir_cluster);
+        for i in 0..get_bytes_per_cluster() / size_of::<DirectoryEntry>() {
+            if is_name_equal(unsafe { dir.add(i) }, name) {
+                return Some(unsafe { &*dir.add(i) });
+            }
+        }
+
+        dir_cluster = next_cluster(dir_cluster);
+    }
+
+    None
 }
 
-pub fn get_cluster_addr(cluster: u64) -> u64 {
+pub fn is_name_equal(entry: *const DirectoryEntry, name: &[ascii::Char]) -> bool {
+    let entry = unsafe { &*entry };
+    let mut name_8_3 = [ascii::Char::Space; 11];
+
+    let mut i = 0;
+    let mut i_8_3 = 0;
+
+    while name[i] == ascii::Char::Null || i_8_3 >= name_8_3.len() {
+        if name[i] == ascii::Char::FullStop {
+            i_8_3 = 8;
+            i += 1;
+            continue;
+        }
+
+        name_8_3[i_8_3] = name[i].to_char().to_ascii_uppercase().as_ascii().unwrap();
+
+        i += 1;
+        i_8_3 += 1;
+    }
+
+    entry.name[..] == name_8_3[..]
+}
+
+pub fn next_cluster(cluster: u32) -> u32 {
+    let boot_volume_image = get_boot_volume_image();
+
+    let fat_offset = boot_volume_image.reserved_sector_count * boot_volume_image.bytes_per_sector;
+
+    // fat: file allocation table
+    let fat = (boot_volume_image.get_addr() + fat_offset as u64) as *const u32;
+
+    let next = unsafe { *fat.add(cluster as usize) };
+
+    if next >= 0xffffff8 {
+        return END_OF_CLUSTER_CHAIN;
+    } else if next == 0xffffff7 {
+        return BAD_CLUSTER;
+    }
+
+    next
+}
+
+pub fn get_sector_by_cluster<T>(cluster: u32) -> *const T {
+    get_cluster_addr(cluster) as *const T
+}
+
+pub fn get_cluster_addr(cluster: u32) -> u64 {
     let boot_volume_image = get_boot_volume_image();
 
     let sector_num = boot_volume_image.reserved_sector_count as u64
         + boot_volume_image.num_fats as u64 * boot_volume_image.fat_size_32 as u64
-        + (cluster - 2) * boot_volume_image.sectors_per_cluster as u64;
+        + (cluster - 2) as u64 * boot_volume_image.sectors_per_cluster as u64;
 
     let offset = sector_num * boot_volume_image.bytes_per_sector as u64;
 
     boot_volume_image.get_addr() + offset
-}
-
-pub fn get_boot_volume_image() -> &'static BPB {
-    let r = *unsafe { BOOT_VOLUME_IMAGE.get_unchecked() };
-
-    #[cfg(feature = "init_check")]
-    let r = *BOOT_VOLUME_IMAGE.get().expect("uninitialized");
-
-    r
 }
