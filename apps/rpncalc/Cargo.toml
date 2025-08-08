@@ -1,0 +1,13 @@
+[package]
+name = "rpncalc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+
+[profile.dev]
+opt-level = "s"
+debug = 1
+panic = "abort"
+codegen-units = 1
+strip = "debuginfo"

@@ -27,7 +27,6 @@ use uefi::boot::ScopedProtocol;
 use uefi::boot::allocate_pool;
 use uefi::helpers;
 use uefi::proto::console::gop::GraphicsOutput;
-use uefi::proto::loaded_image;
 use uefi::proto::loaded_image::LoadedImage;
 use uefi::proto::media::block::BlockIO;
 use uefi::proto::media::file::File;
@@ -107,7 +106,7 @@ fn init_volume_image() -> &'static [u8] {
     let block_media = block_io_protocol.media();
 
     let volume_bytes = block_media.block_size() as u64 * (block_media.last_block() + 1);
-    let volume_bytes = volume_bytes.min(16 * 1024 * 1024);
+    let volume_bytes = volume_bytes.min(20 * 1024 * 1024);
 
     // let mut buffer = vec![0; volume_bytes as usize];
     let mut ptr = allocate_pool(MemoryType::LOADER_DATA, volume_bytes as usize).unwrap();

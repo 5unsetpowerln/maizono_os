@@ -352,8 +352,8 @@ fn tribial_assertion() {
 fn panic(info: &PanicInfo) -> ! {
     use qemu::exit_qemu;
 
-    // serial_println!("[failed]\n");
-    // serial_println!("Error: {}\n", info);
+    serial_println!("[failed]\n");
+    serial_println!("Error: {}\n", info);
     exit_qemu(qemu::QemuExitCode::Failed);
     loop {
         unsafe { asm!("hlt") }

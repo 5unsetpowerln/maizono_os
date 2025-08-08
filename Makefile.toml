@@ -3,7 +3,9 @@
 BOOTLOADER_NAME = "bootloader"
 KERNEL_NAME = "kernel"
 KERNEL_BUILD_TARGET_NAME = "x86_64-kernel"
-# KERNEL_BUILD_TARGET_NAME = "x86_64-unknown-none"
+RPNCALC_NAME = "rpncalc"
+APPS_DIR = "apps"
+APPS_BUILD_TARGET_NAME = "x86_64-app"
 BUILD = "build"
 MOUNT_POINT_NAME = "mnt"
 DISK_IMAGE_NAME = "boot.img"
@@ -30,6 +32,8 @@ script = [
     "mmd -i ${BUILD}/${DISK_IMAGE_NAME} ::/EFI/BOOT",
     "mcopy -i ${BUILD}/${DISK_IMAGE_NAME} ${BUILD}/${BOOTLOADER_NAME}.efi ::/EFI/BOOT/BOOTX64.EFI",
     "mcopy -i ${BUILD}/${DISK_IMAGE_NAME} ${BUILD}/${KERNEL_NAME}.elf ::/${KERNEL_NAME}.elf",
+    "mcopy -i ${BUILD}/${DISK_IMAGE_NAME} sample.txt ::/",
+    "mcopy -i ${BUILD}/${DISK_IMAGE_NAME} ${BUILD}/${RPNCALC_NAME} ::/",
 ]
 
 #
@@ -120,6 +124,16 @@ script = [
     "cp ./${KERNEL_NAME}/target/${KERNEL_BUILD_TARGET_NAME}/debug/${KERNEL_NAME}.elf ${BUILD}/${KERNEL_NAME}.elf",
 ]
 
+[tasks.build_rpncalc_debug]
+description = "Build the rpncalc and copy it to the build directory."
+script = [
+    "cd ${APPS_DIR}/${RPNCALC_NAME}",
+    "cargo build",
+    "cd ../../",
+    "cp ./${APPS_DIR}/${RPNCALC_NAME}/target/${APPS_BUILD_TARGET_NAME}/debug/${RPNCALC_NAME} ${BUILD}/${RPNCALC_NAME}",
+]
+
+
 [tasks.build_bootloader_debug_full]
 script = [
     "cd ${BOOTLOADER_NAME}",
@@ -150,6 +164,7 @@ dependencies = [
     "pre_build",
     "build_bootloader_debug",
     "build_kernel_debug",
+    "build_rpncalc_debug",
     "make_image",
 ]
 
@@ -158,6 +173,7 @@ dependencies = [
     "pre_build",
     "build_bootloader_debug_full",
     "build_kernel_debug_full",
+    "build_rpncalc_debug",
     "make_image",
 ]
 

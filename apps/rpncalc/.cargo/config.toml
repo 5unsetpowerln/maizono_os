@@ -1,0 +1,7 @@
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+
+[build]
+target = "../../build-targets/x86_64-app.json"
+rustflags = ["-C", "prefer-dynamic"]

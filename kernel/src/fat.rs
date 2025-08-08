@@ -4,7 +4,10 @@ use alloc::{format, vec};
 use core::ascii;
 use spin::once::Once;
 
+use crate::{kprintln, serial_println};
+
 #[repr(C, packed)]
+#[derive(Debug)]
 pub struct BPB {
     //   uint8_t jump_boot[3];
     pub jump_boot: [u8; 3],
@@ -88,7 +91,7 @@ impl DirectoryEntry {
         }
 
         let name = self.name[0..8].as_str().trim();
-        return name.to_string();
+        name.to_string()
     }
 }
 
@@ -111,7 +114,7 @@ impl DirectoryEntry {
 }
 
 impl BPB {
-    fn get_addr(&self) -> u64 {
+    pub fn get_addr(&self) -> u64 {
         self as *const Self as u64
     }
 }
@@ -119,8 +122,8 @@ impl BPB {
 pub static BOOT_VOLUME_IMAGE: Once<&'static BPB> = Once::new();
 pub static ROOT_DIR_ENTRIES: Once<Vec<&'static DirectoryEntry>> = Once::new();
 pub static BYTES_PER_CLUSTER: Once<usize> = Once::new();
-const END_OF_CLUSTER_CHAIN: u32 = 0xfffffff;
-const BAD_CLUSTER: u32 = 0xffffff7;
+pub const END_OF_CLUSTER_CHAIN: u32 = 0xfffffff;
+pub const BAD_CLUSTER: u32 = 0xffffff7;
 
 pub fn init(image_volume: &'static [u8]) {
     let bpb_size = size_of::<BPB>();
@@ -163,6 +166,10 @@ pub fn get_bytes_per_cluster() -> usize {
     let r = *BYTES_PER_CLUSTER.get().expect("Uninitialized");
 
     r
+}
+
+pub fn get_root_cluster() -> u32 {
+    get_boot_volume_image().root_cluster
 }
 
 fn get_root_dir_entries_internal() -> Vec<&'static DirectoryEntry> {
@@ -212,19 +219,19 @@ pub fn is_name_equal(entry: *const DirectoryEntry, name: &[ascii::Char]) -> bool
     let entry = unsafe { &*entry };
     let mut name_8_3 = [ascii::Char::Space; 11];
 
-    let mut i = 0;
     let mut i_8_3 = 0;
 
-    while name[i] == ascii::Char::Null || i_8_3 >= name_8_3.len() {
-        if name[i] == ascii::Char::FullStop {
+    for char in name {
+        if i_8_3 >= name_8_3.len() {
+            break;
+        }
+
+        if *char == ascii::Char::FullStop {
             i_8_3 = 8;
-            i += 1;
             continue;
         }
 
-        name_8_3[i_8_3] = name[i].to_char().to_ascii_uppercase().as_ascii().unwrap();
-
-        i += 1;
+        name_8_3[i_8_3] = *char;
         i_8_3 += 1;
     }
 
@@ -252,6 +259,12 @@ pub fn next_cluster(cluster: u32) -> u32 {
 
 pub fn get_sector_by_cluster<T>(cluster: u32) -> *const T {
     get_cluster_addr(cluster) as *const T
+}
+
+pub fn get_bytes_by_cluster(cluster: u32) -> &'static [u8] {
+    let ptr = get_cluster_addr(cluster) as *const u8;
+
+    unsafe { core::slice::from_raw_parts(ptr, get_bytes_per_cluster()) }
 }
 
 pub fn get_cluster_addr(cluster: u32) -> u64 {

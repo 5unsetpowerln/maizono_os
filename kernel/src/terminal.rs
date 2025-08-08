@@ -1,9 +1,11 @@
 use core::ascii::{self, Char};
+use core::ptr::copy_nonoverlapping;
 
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
 use alloc::string::ToString;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::arch::asm;
 use pc_keyboard::{DecodedKey, KeyCode};
@@ -12,12 +14,15 @@ use spin::once::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::TASK_IDS;
-use crate::fat;
+use crate::fat::DirectoryEntry;
+use crate::fat::get_root_cluster;
+use crate::fat::{self, get_sector_by_cluster};
 use crate::graphic::console;
 use crate::kprint;
 use crate::kprintln;
 use crate::logger;
 use crate::message;
+use crate::serial_println;
 use crate::task::TASK_MANAGER;
 use crate::task::TaskManagerTrait;
 
@@ -59,6 +64,7 @@ impl Terminal {
                     }
                 }
                 ascii::Char::LineFeed => {
+                    kprintln!("");
                     self.execute_line();
 
                     self.history.pop_back();
@@ -156,7 +162,6 @@ impl Terminal {
 
         if command.is_none() {
             kprintln!("");
-            kprintln!("");
             return false;
         }
 
@@ -172,13 +177,10 @@ impl Terminal {
                     .unwrap_or("")
                     .trim();
 
-                kprintln!("");
                 kprintln!("{args}");
                 kprintln!("");
             }
             "ls" => {
-                kprintln!("");
-
                 for entry in fat::get_root_dir_entries() {
                     if entry.name[0] == ascii::Char::Null {
                         break;
@@ -193,18 +195,136 @@ impl Terminal {
 
                 kprintln!("");
             }
+            "cat" => {
+                for _ in 0..1 {
+                    let args_index = self.line_buffer.as_str().find(command).unwrap();
+                    let args = self
+                        .line_buffer
+                        .as_str()
+                        .get(args_index + command.len()..)
+                        .unwrap_or("")
+                        .trim();
+
+                    let file_entry = fat::find_file(args.as_ascii().unwrap(), get_root_cluster());
+
+                    if file_entry.is_none() {
+                        kprintln!("No such file: {}", args);
+                        kprintln!("");
+                        break;
+                    }
+
+                    let file_entry = file_entry.unwrap();
+
+                    let mut remain_bytes = file_entry.file_size;
+
+                    let mut cluster = file_entry.first_cluster();
+
+                    while cluster != 0 && cluster != fat::END_OF_CLUSTER_CHAIN {
+                        let mut char = fat::get_sector_by_cluster::<u8>(cluster);
+
+                        if remain_bytes == 0 {
+                            break;
+                        }
+
+                        let mut i = 0;
+
+                        for _ in 0..fat::get_bytes_per_cluster() {
+                            if i >= remain_bytes {
+                                break;
+                            }
+
+                            unsafe {
+                                kprint!(
+                                    "{}",
+                                    ascii::Char::from_u8(*char)
+                                        .unwrap_or(ascii::Char::QuestionMark)
+                                );
+                                char = char.add(1);
+                            };
+
+                            i += 1;
+                        }
+
+                        remain_bytes -= i;
+                        cluster = fat::next_cluster(cluster);
+                    }
+
+                    kprintln!("");
+                }
+            }
             "clear" => {
                 console::clear();
             }
             _ => {
-                kprintln!("");
-                kprintln!("No such command: {command}");
-                kprintln!("");
+                if let Some(file_entry) =
+                    fat::find_file(command.as_ascii().unwrap(), fat::get_root_cluster())
+                {
+                    let args_index = self.line_buffer.as_str().find(command).unwrap();
+
+                    let mut args = self
+                        .line_buffer
+                        .as_str()
+                        .get(args_index + command.len()..)
+                        .unwrap_or("")
+                        .trim()
+                        .split(' ')
+                        .collect::<Vec<&str>>();
+
+                    args.retain(|s| (*s).is_empty());
+
+                    execute_file(file_entry, &args);
+                } else {
+                    kprintln!("No such command: {command}");
+                    kprintln!("");
+                }
             }
         }
 
         true
     }
+}
+
+fn execute_file(file_entry: &DirectoryEntry, args: &[&str]) {
+    let mut cluster = file_entry.first_cluster();
+
+    let mut remain_bytes = file_entry.file_size as usize;
+
+    let mut file_buf = vec![0x90u8; remain_bytes];
+
+    let mut dst = file_buf.as_mut_ptr();
+
+    serial_println!("&func: {:p}", file_buf.as_ptr());
+
+    while cluster != 0 && cluster != fat::END_OF_CLUSTER_CHAIN {
+        let count = if fat::get_bytes_per_cluster() < remain_bytes {
+            fat::get_bytes_per_cluster()
+        } else {
+            remain_bytes
+        };
+
+        let src = get_sector_by_cluster(cluster);
+
+        unsafe {
+            copy_nonoverlapping(src, dst, count);
+        }
+
+        dst = unsafe { dst.add(count) };
+
+        remain_bytes -= count;
+        cluster = fat::next_cluster(cluster);
+    }
+
+    serial_println!("{:?}", &file_buf[1..5]);
+    if file_buf[0..4] == [0x7f, 0x45, 0x4c, 0x46] {
+        let elf = goblin::elf::Elf::parse(&file_buf).expect("Failed to parse the elf.");
+        let func: fn(&[&str]) = unsafe { core::mem::transmute(file_buf.as_ptr() as u64 + 0xac5) };
+        func(args);
+
+        return;
+    }
+
+    let func: fn(&[&str]) = unsafe { core::mem::transmute(file_buf.as_ptr()) };
+    func(args);
 }
 
 static TERMINAL: Once<Mutex<Terminal>> = Once::new();
