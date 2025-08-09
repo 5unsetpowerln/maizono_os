@@ -38,7 +38,7 @@ static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAl
 pub fn init() {
     let heap_frame_head =
         frame_manager::alloc(HEAP_FRAME_COUNT).expect("failed to allocate frames for heap");
-    let heap_start = heap_frame_head.to_bytes();
+    let heap_start = heap_frame_head.to_addr();
     let heap_size = HEAP_FRAME_COUNT * frame_manager::BYTES_PER_FRAME;
 
     unsafe { ALLOCATOR.lock().init(heap_start, heap_size) };

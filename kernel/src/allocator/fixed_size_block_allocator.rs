@@ -2,6 +2,8 @@ use core::alloc::{GlobalAlloc, Layout};
 use core::mem;
 use core::ptr::{self, NonNull};
 
+use x86_64::PhysAddr;
+
 use super::Locked;
 
 /// The block sizes to use.
@@ -33,10 +35,10 @@ impl FixedSizeBlockAllocator {
     ///
     /// This function is unsafe because the caller must guarantee that the given
     /// heap bounds are valid and that the heap is unused. This method must be called only once.
-    pub(crate) unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
+    pub(crate) unsafe fn init(&mut self, heap_start: PhysAddr, heap_size: usize) {
         unsafe {
             self.fallback_allocator
-                .init(heap_start as *mut u8, heap_size);
+                .init(heap_start.as_u64() as *mut u8, heap_size);
         }
     }
 

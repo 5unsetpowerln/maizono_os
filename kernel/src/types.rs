@@ -1,33 +1,45 @@
-// use alloc::collections::vec_deque::VecDeque;
+use core::ops::Deref;
 
-// pub struct Queue<T> {
-//     inner: VecDeque<T>,
-// }
+use x86_64::structures::paging::{PageTableIndex, page_table::PageTableLevel};
 
-// impl<T> Queue<T> {
-//     pub const fn new() -> Self {
-//         Self {
-//             inner: VecDeque::new(),
-//         }
-//     }
+#[derive(Clone, Copy)]
+pub struct VirtAddr {
+    inner: x86_64::VirtAddr,
+}
 
-//     pub fn enqueue(&mut self, item: T) {
-//         self.inner.push_back(item)
-//     }
+impl VirtAddr {
+    pub const fn new(value: u64) -> Self {
+        Self {
+            inner: x86_64::VirtAddr::new(value),
+        }
+    }
 
-//     pub fn dequeue(&mut self) -> Option<T> {
-//         self.inner.pop_front()
-//     }
+    pub fn set_page_table_index(&mut self, level: PageTableLevel, index: PageTableIndex) {
+        let original_addr = self.inner.as_u64();
+        let index = u64::from(index);
+        let shift = 12 + (9 * (level as u8 - 1));
+        let new_addr = (original_addr & !(0b111111111 << shift)) | (index << shift);
 
-//     pub fn front(&mut self) -> Option<T> {
-//         self.inner.front()
-//     }
+        self.inner = x86_64::VirtAddr::new(new_addr);
+    }
 
-//     pub fn is_empty(&self) -> bool {
-//         self.inner.is_empty()
-//     }
+    pub fn align_up_(self, align: u64) -> Self {
+        Self {
+            inner: self.align_up(align),
+        }
+    }
 
-//     pub fn len(&self) -> usize {
-//         self.inner.len()
-//     }
-// }
+    pub fn align_down_(self, align: u64) -> Self {
+        Self {
+            inner: self.align_down(align),
+        }
+    }
+}
+
+impl Deref for VirtAddr {
+    type Target = x86_64::VirtAddr;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}

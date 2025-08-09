@@ -59,6 +59,7 @@ use task::TaskManagerTrait;
 use self::{
     graphic::layer::LAYER_MANAGER,
     task::{TASK_MANAGER, Task},
+    util::read_cr3_raw,
 };
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;

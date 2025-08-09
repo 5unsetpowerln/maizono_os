@@ -5,17 +5,17 @@ use core::arch::asm;
 use core::panic::PanicInfo;
 
 #[unsafe(no_mangle)]
-pub extern "sysv64" fn _start(args: &[&str]) -> Option<u64> {
+pub extern "sysv64" fn _start(args: &[&str]) -> Option<i64> {
     let mut stack = [0; 100];
     let mut stack_ptr = 0;
 
-    fn pop(stack: &mut [u64], stack_ptr: &mut usize) -> u64 {
+    fn pop(stack: &mut [i64], stack_ptr: &mut usize) -> i64 {
         let value = stack[*stack_ptr];
         *stack_ptr -= 1;
         value
     }
 
-    fn push(stack: &mut [u64], stack_ptr: &mut usize, value: u64) {
+    fn push(stack: &mut [i64], stack_ptr: &mut usize, value: i64) {
         *stack_ptr += 1;
         stack[*stack_ptr] = value;
     }
@@ -30,7 +30,7 @@ pub extern "sysv64" fn _start(args: &[&str]) -> Option<u64> {
             let a = pop(&mut stack, &mut stack_ptr);
             push(&mut stack, &mut stack_ptr, a - b);
         } else {
-            let a = match (*arg).parse::<u64>() {
+            let a = match (*arg).parse::<i64>() {
                 Ok(i) => i,
                 Err(_) => return None,
             };

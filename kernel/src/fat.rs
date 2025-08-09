@@ -1,10 +1,9 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use alloc::{format, vec};
+use bitflags::bitflags;
 use core::ascii;
 use spin::once::Once;
-
-use crate::{kprintln, serial_println};
 
 #[repr(C, packed)]
 #[derive(Debug)]
@@ -93,23 +92,102 @@ impl DirectoryEntry {
         let name = self.name[0..8].as_str().trim();
         name.to_string()
     }
-}
 
-#[repr(u8)]
-#[derive(Debug, Copy, Clone)]
-pub enum Attribute {
-    ReadOnly = 0x01,
-    Hidden = 0x02,
-    System = 0x04,
-    VolumeID = 0x08,
-    Directory = 0x10,
-    Archive = 0x20,
-    LongName = 0x0f,
-}
+    pub fn is_file(&self) -> bool {
+        self.attr.is_file()
+    }
 
-impl DirectoryEntry {
+    pub fn read_file(&self, buf: &mut [u8]) -> usize {
+        let bytes_per_cluster = get_bytes_per_cluster();
+
+        let mut cluster = self.first_cluster();
+
+        let mut written = 0;
+
+        while cluster != 0 && cluster != END_OF_CLUSTER_CHAIN && cluster != BAD_CLUSTER {
+            let src = get_sector_by_cluster::<u8>(cluster);
+
+            if bytes_per_cluster > buf.len() - written {
+                let src = unsafe { core::slice::from_raw_parts(src, buf.len() - written) };
+
+                buf[written..].copy_from_slice(src);
+
+                if buf.len() > self.file_size as usize {
+                    return self.file_size as usize;
+                }
+
+                return buf.len();
+            }
+
+            let src = unsafe { core::slice::from_raw_parts(src, get_bytes_per_cluster()) };
+
+            buf[written..].copy_from_slice(src);
+
+            written += bytes_per_cluster;
+
+            cluster = next_cluster(cluster);
+        }
+
+        written
+    }
+
+    pub fn read_file_to_vec(&self, buf: &mut Vec<u8>) {
+        let bytes_per_cluster = get_bytes_per_cluster();
+
+        let mut cluster = self.first_cluster();
+
+        let mut written = 0;
+
+        while cluster != 0 && cluster != END_OF_CLUSTER_CHAIN && cluster != BAD_CLUSTER {
+            let src = get_sector_by_cluster::<u8>(cluster);
+
+            if bytes_per_cluster > self.file_size as usize - written {
+                let src =
+                    unsafe { core::slice::from_raw_parts(src, self.file_size as usize - written) };
+                buf.extend_from_slice(src);
+
+                return;
+            }
+
+            let src = unsafe { core::slice::from_raw_parts(src, bytes_per_cluster) };
+
+            buf.extend_from_slice(src);
+
+            written += bytes_per_cluster;
+
+            cluster = next_cluster(cluster);
+        }
+    }
+
     pub fn first_cluster(&self) -> u32 {
         self.first_cluster_low as u32 | ((self.first_cluster_high as u32) << 16)
+    }
+}
+
+bitflags! {
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub struct Attribute: u8 {
+        const READ_ONLY= 0x01;
+        const HIDDEN= 0x02;
+        const SYSTEM= 0x04;
+        const VOLUME_ID= 0x08;
+        const DIRECTORY= 0x10;
+        const ARCHIVE= 0x20;
+        const LONG_NAME= 0x0f;
+    }
+}
+
+impl Attribute {
+    pub fn is_directory(&self) -> bool {
+        self.contains(Self::DIRECTORY)
+    }
+
+    pub fn is_file(&self) -> bool {
+        !self.intersects(Self::DIRECTORY | Self::VOLUME_ID)
+    }
+
+    pub fn is_long_name(&self) -> bool {
+        self.contains(Self::LONG_NAME)
     }
 }
 

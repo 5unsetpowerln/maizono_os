@@ -8,23 +8,30 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::arch::asm;
+use goblin::elf;
+use goblin::elf::program_header::PT_LOAD;
 use pc_keyboard::{DecodedKey, KeyCode};
 use spin::mutex::Mutex;
 use spin::once::Once;
 use x86_64::instructions::interrupts::without_interrupts;
+use x86_64::structures::paging::page_table::{FrameError, PageTableEntry, PageTableLevel};
+use x86_64::structures::paging::{PageTable, PageTableFlags, PageTableIndex};
+use x86_64::{PhysAddr, registers};
 
-use crate::TASK_IDS;
 use crate::fat::DirectoryEntry;
 use crate::fat::get_root_cluster;
 use crate::fat::{self, get_sector_by_cluster};
+use crate::frame_manager::FrameID;
 use crate::graphic::console;
-use crate::kprint;
 use crate::kprintln;
 use crate::logger;
 use crate::message;
 use crate::serial_println;
 use crate::task::TASK_MANAGER;
 use crate::task::TaskManagerTrait;
+use crate::types::VirtAddr;
+use crate::{TASK_IDS, frame_manager};
+use crate::{kprint, serial_print};
 
 const HISTORY_SIZE: usize = 8;
 const PROMPT: &str = "$ ";
@@ -184,9 +191,7 @@ impl Terminal {
                 for entry in fat::get_root_dir_entries() {
                     if entry.name[0] == ascii::Char::Null {
                         break;
-                    } else if entry.name[0].to_u8() == 0xe5 {
-                        continue;
-                    } else if let fat::Attribute::LongName = entry.attr {
+                    } else if entry.name[0].to_u8() == 0xe5 || entry.attr.is_long_name() {
                         continue;
                     }
 
@@ -215,41 +220,13 @@ impl Terminal {
 
                     let file_entry = file_entry.unwrap();
 
-                    let mut remain_bytes = file_entry.file_size;
+                    let mut buffer = Vec::new();
 
-                    let mut cluster = file_entry.first_cluster();
+                    file_entry.read_file_to_vec(&mut buffer);
 
-                    while cluster != 0 && cluster != fat::END_OF_CLUSTER_CHAIN {
-                        let mut char = fat::get_sector_by_cluster::<u8>(cluster);
+                    let string = String::from_utf8_lossy(&buffer).to_string();
 
-                        if remain_bytes == 0 {
-                            break;
-                        }
-
-                        let mut i = 0;
-
-                        for _ in 0..fat::get_bytes_per_cluster() {
-                            if i >= remain_bytes {
-                                break;
-                            }
-
-                            unsafe {
-                                kprint!(
-                                    "{}",
-                                    ascii::Char::from_u8(*char)
-                                        .unwrap_or(ascii::Char::QuestionMark)
-                                );
-                                char = char.add(1);
-                            };
-
-                            i += 1;
-                        }
-
-                        remain_bytes -= i;
-                        cluster = fat::next_cluster(cluster);
-                    }
-
-                    kprintln!("");
+                    kprintln!("{}", string);
                 }
             }
             "clear" => {
@@ -284,46 +261,30 @@ impl Terminal {
     }
 }
 
-fn execute_file(file_entry: &DirectoryEntry, args: &[&str]) {
-    let mut cluster = file_entry.first_cluster();
+fn execute_file(file: &DirectoryEntry, args: &[&str]) {
+    let mut buffer = Vec::new();
 
-    let mut remain_bytes = file_entry.file_size as usize;
+    file.read_file_to_vec(&mut buffer);
 
-    let mut file_buf = vec![0x90u8; remain_bytes];
+    serial_println!("{:?}", &buffer[1..5]);
+    if buffer[0..4] == [0x7f, 0x45, 0x4c, 0x46] {
+        let elf = goblin::elf::Elf::parse(&buffer).expect("Failed to parse the elf.");
+        load_elf(&buffer, &elf).unwrap();
 
-    let mut dst = file_buf.as_mut_ptr();
+        let func: fn(&[&str]) -> Option<i64> = unsafe { core::mem::transmute(elf.entry) };
 
-    serial_println!("&func: {:p}", file_buf.as_ptr());
+        let ret = func(args);
 
-    while cluster != 0 && cluster != fat::END_OF_CLUSTER_CHAIN {
-        let count = if fat::get_bytes_per_cluster() < remain_bytes {
-            fat::get_bytes_per_cluster()
-        } else {
-            remain_bytes
-        };
+        kprintln!("Exited. Ret: {:?}", ret);
 
-        let src = get_sector_by_cluster(cluster);
+        let first_addr = get_first_load_address(&elf).unwrap();
 
-        unsafe {
-            copy_nonoverlapping(src, dst, count);
-        }
-
-        dst = unsafe { dst.add(count) };
-
-        remain_bytes -= count;
-        cluster = fat::next_cluster(cluster);
-    }
-
-    serial_println!("{:?}", &file_buf[1..5]);
-    if file_buf[0..4] == [0x7f, 0x45, 0x4c, 0x46] {
-        let elf = goblin::elf::Elf::parse(&file_buf).expect("Failed to parse the elf.");
-        let func: fn(&[&str]) = unsafe { core::mem::transmute(file_buf.as_ptr() as u64 + 0xac5) };
-        func(args);
+        clean_page_tables(first_addr).unwrap();
 
         return;
     }
 
-    let func: fn(&[&str]) = unsafe { core::mem::transmute(file_buf.as_ptr()) };
+    let func: fn(&[&str]) = unsafe { core::mem::transmute(buffer.as_ptr()) };
     func(args);
 }
 
@@ -368,3 +329,231 @@ pub fn terminal_task(task_id: u64, _data: u64) {
         unsafe { asm!("hlt") }
     }
 }
+
+const VIRTUAL_ADDRESS_MIN: VirtAddr = VirtAddr::new(0xffff800000000000);
+
+fn load_elf(src: &[u8], elf: &elf::Elf) -> Result<()> {
+    if elf.header.e_type != goblin::elf::header::ET_EXEC {
+        return Err(Error::InvalidFormat);
+    }
+
+    let first_addr = get_first_load_address(elf).unwrap();
+
+    if first_addr.as_u64() < VIRTUAL_ADDRESS_MIN.as_u64() {
+        return Err(Error::InvalidFormat);
+    }
+
+    copy_load_segments(src, elf)?;
+
+    Ok(())
+}
+
+fn copy_load_segments(src: &[u8], elf: &goblin::elf::Elf) -> Result<()> {
+    for ph in elf.program_headers.iter() {
+        if ph.p_type == PT_LOAD {
+            let vaddr = ph.p_vaddr;
+            let mem_size = ph.p_memsz as usize;
+            let file_size = ph.p_filesz as usize;
+            let offset = ph.p_offset as usize;
+
+            let page_start = VirtAddr::new(vaddr).align_down_(0x1000);
+            let page_end = VirtAddr::new(vaddr + mem_size as u64).align_up_(0x1000);
+            let page_count_4k = (page_end.as_u64() - page_start.as_u64()) / 0x1000;
+
+            setup_page_tables(page_start, page_count_4k as usize)?;
+
+            let dst = vaddr as *mut u8;
+            let src = src.as_ptr();
+
+            unsafe {
+                core::ptr::copy(src.add(offset), dst, file_size);
+                dst.add(file_size).write_bytes(0, mem_size - file_size);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn setup_page_tables(addr: VirtAddr, page_count_4k: usize) -> Result<()> {
+    let table_4 = {
+        let ptr = registers::control::Cr3::read().0.start_address().as_u64() as *mut PageTable;
+
+        unsafe { &mut *ptr }
+    };
+
+    if setup_page_table(table_4, PageTableLevel::Four, addr, page_count_4k).is_err() {
+        return Err(Error::CannotPreparePageTable);
+    }
+
+    Ok(())
+}
+
+fn setup_page_table(
+    page_table: &mut PageTable,
+    level: PageTableLevel,
+    mut addr: VirtAddr,
+    mut page_count_4k: usize,
+) -> Result<Option<usize>> {
+    while page_count_4k > 0 {
+        let index = addr.page_table_index(level);
+
+        let entry = &mut page_table[index];
+
+        if let PageTableLevel::One = level {
+            if !entry.flags().contains(PageTableFlags::PRESENT) {
+                let phys_addr = frame_manager::alloc(1)
+                    .expect("Failed to allocate a page frame.")
+                    .to_addr();
+
+                let ptr = phys_addr.as_u64() as *mut u8;
+
+                unsafe {
+                    ptr.write_bytes(0, 0x1000);
+                }
+
+                entry.set_addr(phys_addr, entry.flags());
+            }
+
+            entry.set_flags(entry.flags() | PageTableFlags::WRITABLE | PageTableFlags::PRESENT);
+
+            page_count_4k -= 1;
+        } else {
+            let child_table = unsafe { set_new_page_table_if_not_present(entry) };
+
+            entry.set_flags(entry.flags() | PageTableFlags::WRITABLE);
+
+            if let Some(remain_page_count) = setup_page_table(
+                unsafe { &mut *child_table },
+                level.next_lower_level().unwrap(),
+                addr,
+                page_count_4k,
+            )? {
+                page_count_4k = remain_page_count;
+            } else {
+                return Ok(None);
+            }
+        }
+
+        let paddr = entry.addr();
+
+        if u16::from(index) as usize == page_table.iter().count() - 1 {
+            break;
+        }
+
+        serial_print!("{:?}: 0x{:x} ~ ", level, addr.as_u64());
+
+        addr.set_page_table_index(level, PageTableIndex::new(u16::from(index) + 1));
+
+        let mut lv = level;
+        while let Some(lower_level) = lv.next_lower_level() {
+            addr.set_page_table_index(lower_level, PageTableIndex::new(0));
+
+            lv = lower_level;
+        }
+
+        serial_println!("0x{:x}: 0x{:x}", addr.as_u64(), paddr.as_u64());
+    }
+
+    Ok(None)
+}
+
+/// 渡すエントリがレベル1のテーブルに属していないことをプログラマが保証してください
+unsafe fn set_new_page_table_if_not_present(entry: &mut PageTableEntry) -> *mut PageTable {
+    match entry.frame() {
+        Ok(frame) => frame.start_address().as_u64() as *mut PageTable,
+        Err(err) => match err {
+            FrameError::FrameNotPresent => {
+                let child_page_table = unsafe { new_page_table() };
+                entry.set_addr(child_page_table, PageTableFlags::PRESENT);
+
+                child_page_table.as_u64() as *mut PageTable
+            }
+            FrameError::HugeFrame => {
+                panic!("Huge frame error.")
+            }
+        },
+    }
+}
+
+unsafe fn new_page_table() -> PhysAddr {
+    let addr = frame_manager::alloc(1)
+        .expect("Failed to allocate a new page frame")
+        .to_addr();
+
+    let ptr = addr.as_u64() as *mut u8;
+
+    unsafe {
+        core::ptr::write_bytes(ptr, 0, frame_manager::BYTES_PER_FRAME);
+    }
+
+    addr
+}
+
+fn clean_page_tables(addr: VirtAddr) -> Result<()> {
+    let table_4 = unsafe {
+        let ptr = registers::control::Cr3::read().0.start_address().as_u64() as *mut PageTable;
+
+        &mut *ptr
+    };
+
+    let table_3 = unsafe {
+        let ptr = table_4[addr.p4_index()].addr().as_u64() as *mut PageTable;
+
+        &mut *ptr
+    };
+
+    // 複数のレベル4ページテーブルを使用するほど大きなメモリを使うアプリは作らないので一つだけで良いとのこと
+    table_4[addr.p4_index()].set_unused();
+
+    clean_page_table(table_3, PageTableLevel::Three)?;
+
+    let frame_id =
+        frame_manager::FrameID::from_addr(PhysAddr::new(table_3 as *const PageTable as u64));
+
+    frame_manager::dealloc(frame_id, 1);
+
+    Ok(())
+}
+
+fn clean_page_table(table: &mut PageTable, level: PageTableLevel) -> Result<()> {
+    for entry in table.iter_mut() {
+        if !entry.flags().contains(PageTableFlags::PRESENT) {
+            continue;
+        }
+
+        if let PageTableLevel::One = level {
+        } else {
+            let child_table = unsafe { &mut *(entry.addr().as_u64() as *mut PageTable) };
+
+            clean_page_table(child_table, level.next_lower_level().unwrap())?;
+        }
+
+        let frame_id = FrameID::from_addr(entry.addr());
+
+        frame_manager::dealloc(frame_id, 1);
+
+        entry.set_unused();
+    }
+
+    Ok(())
+}
+
+fn get_first_load_address(elf: &goblin::elf::Elf) -> Option<VirtAddr> {
+    for ph in elf.program_headers.iter() {
+        if ph.p_type == PT_LOAD {
+            return Some(VirtAddr::new(ph.p_vaddr));
+        }
+    }
+
+    None
+}
+
+#[derive(Debug)]
+enum Error {
+    InvalidFormat,
+    CannotPreparePageTable,
+    VirtAddrInUse,
+}
+
+type Result<T> = core::result::Result<T, Error>;

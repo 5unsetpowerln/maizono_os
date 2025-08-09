@@ -14,7 +14,7 @@
   "relro-level": "off",
   "position-independent-executables": false,
   "post-link-args": {
-    "ld.lld": ["--image-base=0x200000", "-z norelro"]
+    "ld.lld": ["--image-base=0xffff800000000000", "-z norelro"]
   },
   "target-pointer-width": "64"
 }

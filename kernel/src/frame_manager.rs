@@ -3,6 +3,7 @@ use core::ops::{Deref, DerefMut};
 use spin::Mutex;
 use thiserror_no_std::Error;
 use uefi::mem::memory_map::{MemoryMap, MemoryMapOwned};
+use x86_64::PhysAddr;
 
 use crate::memory_map::{UEFI_PAGE_SIZE, is_available};
 
@@ -26,8 +27,13 @@ impl FrameID {
         self.id
     }
 
-    pub fn to_bytes(&self) -> usize {
-        self.id * BYTES_PER_FRAME
+    pub fn to_addr(&self) -> PhysAddr {
+        PhysAddr::new(self.id as u64 * BYTES_PER_FRAME as u64)
+    }
+
+    pub fn from_addr(addr: PhysAddr) -> Self {
+        let id = addr.as_u64() as usize / BYTES_PER_FRAME;
+        Self { id }
     }
 }
 

@@ -35,6 +35,7 @@ goblin = { version = "0.8.2", default-features = false, features = [
     "elf32",
     "endian_fd",
 ] }
+bitflags = "2.9.1"
 
 [features]
 logging_in_interrupt_handler = []

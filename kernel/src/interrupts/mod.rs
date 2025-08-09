@@ -7,7 +7,7 @@ use apic::{IoApic, LocalApic, write_msr};
 use log::{error, info};
 use spin::{Lazy, Mutex};
 use x86_64::instructions::port::Port;
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{message, timer};
 
@@ -51,6 +51,7 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     let mut idt = InterruptDescriptorTable::new();
     idt.breakpoint.set_handler_fn(breakpoint_handler);
     idt.double_fault.set_handler_fn(double_fault_handler);
+    idt.page_fault.set_handler_fn(page_fault_handler);
     idt[InterruptVector::LocalAPICTimer as u8].set_handler_fn(timer::interrupt_handler);
     idt[InterruptVector::ExternalIrqTimer.as_u8()]
         .set_handler_fn(external_irq_timer_interrupt_handler);
@@ -61,6 +62,11 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
 
     idt
 });
+
+extern  "x86-interrupt" fn page_fault_handler(
+    stack_frame: InterruptStackFrame, _error_code: PageFaultErrorCode) {
+    panic!("EXCEPTION: PAGE FAULT\n{:#?} err_code:{:#?}", stack_frame, _error_code);
+}
 
 pub fn init() {
     init_idt();
