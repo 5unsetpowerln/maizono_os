@@ -247,7 +247,7 @@ impl Terminal {
                         .split(' ')
                         .collect::<Vec<&str>>();
 
-                    args.retain(|s| (*s).is_empty());
+                    args.retain(|s| !(*s).is_empty());
 
                     execute_file(file_entry, &args);
                 } else {
@@ -271,7 +271,8 @@ fn execute_file(file: &DirectoryEntry, args: &[&str]) {
         let elf = goblin::elf::Elf::parse(&buffer).expect("Failed to parse the elf.");
         load_elf(&buffer, &elf).unwrap();
 
-        let func: fn(&[&str]) -> Option<i64> = unsafe { core::mem::transmute(elf.entry) };
+        let func: extern "sysv64" fn(&[&str]) -> Option<i64> =
+            unsafe { core::mem::transmute(elf.entry) };
 
         let ret = func(args);
 
