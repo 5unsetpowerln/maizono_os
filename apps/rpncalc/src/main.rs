@@ -5,7 +5,13 @@ use core::arch::asm;
 use core::panic::PanicInfo;
 
 #[unsafe(no_mangle)]
-pub extern "sysv64" fn _start(args: &[&str]) -> Option<i64> {
+pub extern "sysv64" fn _start(argc: usize, argv: *const *const u8) -> Option<i64> {
+    let args = unsafe { core::slice::from_raw_parts(argv as *const &str, argc) };
+
+    main(args)
+}
+
+fn main(args: &[&str]) -> Option<i64> {
     let mut stack = [0; 100];
     let mut stack_ptr = 0;
 

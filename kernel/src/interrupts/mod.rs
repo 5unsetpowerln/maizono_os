@@ -52,6 +52,8 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt.breakpoint.set_handler_fn(breakpoint_handler);
     idt.double_fault.set_handler_fn(double_fault_handler);
     idt.page_fault.set_handler_fn(page_fault_handler);
+    idt.general_protection_fault
+        .set_handler_fn(general_protection_fault_handler);
     idt[InterruptVector::LocalAPICTimer as u8].set_handler_fn(timer::interrupt_handler);
     idt[InterruptVector::ExternalIrqTimer.as_u8()]
         .set_handler_fn(external_irq_timer_interrupt_handler);
@@ -63,9 +65,36 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     idt
 });
 
-extern  "x86-interrupt" fn page_fault_handler(
-    stack_frame: InterruptStackFrame, _error_code: PageFaultErrorCode) {
-    panic!("EXCEPTION: PAGE FAULT\n{:#?} err_code:{:#?}", stack_frame, _error_code);
+extern "x86-interrupt" fn page_fault_handler(
+    stack_frame: InterruptStackFrame,
+    _error_code: PageFaultErrorCode,
+) {
+    error!(
+        "EXCEPTION: PAGE FAULT\n{:#?} err_code:{:#?}",
+        stack_frame, _error_code
+    );
+
+    loop {
+        unsafe {
+            core::arch::asm!("hlt");
+        }
+    }
+}
+
+extern "x86-interrupt" fn general_protection_fault_handler(
+    stack_frame: InterruptStackFrame,
+    _error_code: u64,
+) {
+    error!(
+        "EXCEPTION: GP FAULT\n{:#?} err_code:{:#?}",
+        stack_frame, _error_code
+    );
+
+    loop {
+        unsafe {
+            core::arch::asm!("hlt");
+        }
+    }
 }
 
 pub fn init() {

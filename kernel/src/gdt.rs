@@ -1,6 +1,9 @@
+use core::arch::naked_asm;
+
 use spin::{Mutex, MutexGuard, Once};
 use x86_64::{
     PrivilegeLevel::Ring0,
+    instructions::interrupts::without_interrupts,
     registers::segmentation::{CS, DS, ES, FS, GS, SS, Segment},
     structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
 };
@@ -43,7 +46,7 @@ pub fn get_kernel_cs() -> SegmentSelector {
     #[cfg(feature = "init_check")]
     let cs = KERNEL_CS.get().expect("Uninitialized");
 
-    return *cs;
+    *cs
 }
 
 pub fn get_kernel_ss() -> SegmentSelector {
@@ -52,7 +55,7 @@ pub fn get_kernel_ss() -> SegmentSelector {
     #[cfg(feature = "init_check")]
     let ss = KERNEL_SS.get().expect("Uninitialized");
 
-    return *ss;
+    *ss
 }
 
 pub fn get_user_cs() -> SegmentSelector {
@@ -61,7 +64,7 @@ pub fn get_user_cs() -> SegmentSelector {
     #[cfg(feature = "init_check")]
     let cs = USER_CS.get().expect("Uninitialized");
 
-    return *cs;
+    *cs
 }
 
 pub fn get_user_ss() -> SegmentSelector {
@@ -70,5 +73,39 @@ pub fn get_user_ss() -> SegmentSelector {
     #[cfg(feature = "init_check")]
     let ss = USER_SS.get().expect("Uninitialized");
 
-    return *ss;
+    *ss
+}
+
+pub unsafe fn call_app(argc: usize, argv: *const *const u8, rip: u64, rsp: u64) {
+    let cs = get_user_cs().0 as u64;
+    let ss = get_user_ss().0 as u64;
+    let rflags = x86_64::registers::rflags::read_raw();
+
+    unsafe {
+        call_app_inner(argc, argv, cs, ss, rflags, rip, rsp);
+    }
+}
+
+#[naked]
+unsafe extern "C" fn call_app_inner(
+    argc: usize,
+    argv: *const *const u8,
+    cs: u64,
+    ss: u64,
+    rflags: u64,
+    rip: u64,
+    rsp: u64,
+) {
+    unsafe {
+        naked_asm!(
+            "push rbp",
+            "mov rbp, rsp",
+            "push rcx", // ss
+            "push r10", // rsp
+            "push r8",  // rflags
+            "push rdx", // cs
+            "push r9",  // rip
+            "iretq"
+        )
+    }
 }

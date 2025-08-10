@@ -22,6 +22,7 @@ use crate::fat::DirectoryEntry;
 use crate::fat::get_root_cluster;
 use crate::fat::{self, get_sector_by_cluster};
 use crate::frame_manager::FrameID;
+use crate::gdt::call_app;
 use crate::graphic::console;
 use crate::kprintln;
 use crate::logger;
@@ -261,6 +262,9 @@ impl Terminal {
     }
 }
 
+const STACK_FRAME_ADDR: VirtAddr = VirtAddr::new(0xffff_ffff_ffff_e000);
+const ARGS_FRAME_ADDR: VirtAddr = VirtAddr::new(0xffff_ffff_ffff_f000);
+
 fn execute_file(file: &DirectoryEntry, args: &[&str]) {
     let mut buffer = Vec::new();
 
@@ -269,14 +273,28 @@ fn execute_file(file: &DirectoryEntry, args: &[&str]) {
     serial_println!("{:?}", &buffer[1..5]);
     if buffer[0..4] == [0x7f, 0x45, 0x4c, 0x46] {
         let elf = goblin::elf::Elf::parse(&buffer).expect("Failed to parse the elf.");
+
         load_elf(&buffer, &elf).unwrap();
 
-        let func: extern "sysv64" fn(&[&str]) -> Option<i64> =
-            unsafe { core::mem::transmute(elf.entry) };
+        setup_page_tables(STACK_FRAME_ADDR, 1).expect("Failed to prepare stack frame.");
 
-        let ret = func(args);
+        setup_page_tables(ARGS_FRAME_ADDR, 1).expect("Failed to prepare args frame.");
 
-        kprintln!("Exited. Ret: {:?}", ret);
+        make_argv(args, ARGS_FRAME_ADDR);
+
+        let argc = args.len();
+        let argv = ARGS_FRAME_ADDR.as_u64() as *const *const u8;
+
+        x86_64::instructions::tlb::flush_all();
+
+        unsafe {
+            call_app(
+                argc,
+                argv,
+                elf.entry,
+                STACK_FRAME_ADDR.as_u64() + 0x1000 - 8,
+            );
+        }
 
         let first_addr = get_first_load_address(&elf).unwrap();
 
@@ -287,6 +305,28 @@ fn execute_file(file: &DirectoryEntry, args: &[&str]) {
 
     let func: fn(&[&str]) = unsafe { core::mem::transmute(buffer.as_ptr()) };
     func(args);
+}
+
+fn make_argv(src: &[&str], dst: VirtAddr) {
+    let buf_offset = 8 * src.len();
+
+    let dst = dst.as_u64() as *mut u8;
+
+    let mut written = 0;
+
+    for (i, string) in src.iter().enumerate() {
+        unsafe {
+            let string_src = *string as *const str as *const u8;
+            let string_dst = dst.add(buf_offset + written);
+
+            copy_nonoverlapping(string_src, string_dst, string.len());
+
+            let pointer_dst = dst.add(8 * i) as *mut u64;
+            pointer_dst.write_volatile(string_dst as u64);
+        }
+
+        written += string.len() + 1;
+    }
 }
 
 static TERMINAL: Once<Mutex<Terminal>> = Once::new();
@@ -416,13 +456,23 @@ fn setup_page_table(
                 entry.set_addr(phys_addr, entry.flags());
             }
 
-            entry.set_flags(entry.flags() | PageTableFlags::WRITABLE | PageTableFlags::PRESENT);
+            entry.set_flags(
+                entry.flags()
+                    | PageTableFlags::WRITABLE
+                    | PageTableFlags::PRESENT
+                    | PageTableFlags::USER_ACCESSIBLE,
+            );
 
             page_count_4k -= 1;
         } else {
             let child_table = unsafe { set_new_page_table_if_not_present(entry) };
 
-            entry.set_flags(entry.flags() | PageTableFlags::WRITABLE);
+            entry.set_flags(
+                entry.flags()
+                    | PageTableFlags::WRITABLE
+                    | PageTableFlags::PRESENT
+                    | PageTableFlags::USER_ACCESSIBLE,
+            );
 
             if let Some(remain_page_count) = setup_page_table(
                 unsafe { &mut *child_table },
