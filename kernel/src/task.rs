@@ -9,8 +9,8 @@ use spin::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::allocator::Locked;
+use crate::gdt::{get_kernel_cs, get_kernel_ss};
 use crate::message::Message;
-use crate::segment::{KERNEL_CS, KERNEL_SS};
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
 use crate::util::read_cr3_raw;
 
@@ -222,8 +222,8 @@ impl Task {
 
         self.context.0.cr3 = unsafe { read_cr3_raw() };
         self.context.0.rflags = 0x202;
-        self.context.0.cs = KERNEL_CS;
-        self.context.0.ss = KERNEL_SS;
+        self.context.0.cs = get_kernel_cs().0 as u64;
+        self.context.0.ss = get_kernel_ss().0 as u64;
         self.context.0.rsp = (stack_end & !0xf) - 8;
         self.context.0.rip = f as u64;
         self.context.0.rdi = self.id;
