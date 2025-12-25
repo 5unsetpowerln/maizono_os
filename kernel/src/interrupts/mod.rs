@@ -1,9 +1,10 @@
 pub mod apic;
 
 use crate::message::Message;
+use crate::x64::{IA32_APIC_BASE_MSR, write_msr};
 use crate::{acpi, device::ps2};
 use ::acpi::madt::InterruptSourceOverrideEntry;
-use apic::{IoApic, LocalApic, write_msr};
+use apic::{IoApic, LocalApic};
 use log::{error, info};
 use spin::{Lazy, Mutex};
 use x86_64::instructions::port::Port;
@@ -110,8 +111,6 @@ fn init_idt() {
 fn init_apic() {
     // Enabling APIC
     {
-        const IA32_APIC_BASE_MSR: u32 = 0x1B;
-
         // output a local apic base which is from MADT and once which is from IA32_APIC_BASE MSR
         let local_apic_base = acpi::get_apic_info().local_apic_base();
 

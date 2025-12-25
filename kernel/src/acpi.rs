@@ -1,4 +1,5 @@
 use core::{
+    cell::UnsafeCell,
     marker::PhantomData,
     mem::MaybeUninit,
     pin::{Pin, pin},
@@ -8,7 +9,7 @@ use core::{
 use acpi::{
     AcpiError,
     fadt::Fadt,
-    madt::{IoApicEntry, LocalApicEntry, Madt},
+    madt::{IoApicEntry, LocalApicEntry, Madt, MadtEntry},
     rsdp::Rsdp,
     sdt::SdtHeader,
 };
@@ -100,73 +101,72 @@ impl Xsdt {
     }
 }
 
-pub struct ApicInfo {
-    local_apic_base: u32,
-    local_apic: LocalApicEntry,
-    io_apic: IoApicEntry,
-}
+// pub struct ApicInfo {
+//     local_apic_base: u32,
+//     local_apic: LocalApicEntry,
+//     io_apic: IoApicEntry,
+// }
 
-impl ApicInfo {
-    fn from_madt(madt: Pin<&Madt>) -> Self {
-        // Find the entry about I/O APIC from the MADT.
-        let io_apic_entry = madt
-            .entries()
-            .find_map(|entry| {
-                if let acpi::madt::MadtEntry::IoApic(o) = entry {
-                    Some(o)
-                } else {
-                    None
-                }
-            })
-            .expect("The entry about the I/O APIC wasn't found from the MADT");
+// impl ApicInfo {
+//     fn from_madt(madt: Pin<&Madt>) -> Self {
+//         // Find the entry about I/O APIC from the MADT.
+//         let io_apic_entry = madt
+//             .entries()
+//             .find_map(|entry| {
+//                 if let acpi::madt::MadtEntry::IoApic(o) = entry {
+//                     Some(o)
+//                 } else {
+//                     None
+//                 }
+//             })
+//             .expect("The entry about the I/O APIC wasn't found from the MADT");
 
-        // Find the entry about Local APIC from the MADT.
-        let local_apic_entry = madt
-            .entries()
-            .find_map(|entry| {
-                if let acpi::madt::MadtEntry::LocalApic(o) = entry {
-                    Some(o)
-                } else {
-                    None
-                }
-            })
-            .expect("The entry about the Local APIC wasn't found from the MADT");
+//         // Find the entry about Local APIC from the MADT.
+//         let local_apic_entry = madt
+//             .entries()
+//             .find_map(|entry| {
+//                 if let acpi::madt::MadtEntry::LocalApic(o) = entry {
+//                     Some(o)
+//                 } else {
+//                     None
+//                 }
+//             })
+//             .expect("The entry about the Local APIC wasn't found from the MADT");
 
-        // Get from the base address of the Local APIC from the MADT.
-        let local_apic_base = madt.local_apic_address;
+//         // Get from the base address of the Local APIC from the MADT.
+//         let local_apic_base = madt.local_apic_address;
 
-        return Self {
-            local_apic_base,
-            local_apic: *local_apic_entry,
-            io_apic: *io_apic_entry,
-        };
-    }
+//         return Self {
+//             local_apic_base,
+//             local_apic: *local_apic_entry,
+//             io_apic: *io_apic_entry,
+//         };
+//     }
 
-    #[inline]
-    pub fn local_apic_base(&self) -> u32 {
-        self.local_apic_base
-    }
+//     #[inline]
+//     pub fn local_apic_base(&self) -> u32 {
+//         self.local_apic_base
+//     }
 
-    #[inline]
-    pub fn io_apic_base(&self) -> u32 {
-        self.io_apic.io_apic_address
-    }
+//     #[inline]
+//     pub fn io_apic_base(&self) -> u32 {
+//         self.io_apic.io_apic_address
+//     }
 
-    #[inline]
-    pub fn io_apic_id(&self) -> u8 {
-        self.io_apic.io_apic_id
-    }
+//     #[inline]
+//     pub fn io_apic_id(&self) -> u8 {
+//         self.io_apic.io_apic_id
+//     }
 
-    pub fn processor_id(&self) -> u8 {
-        self.local_apic.processor_id
-    }
-}
+//     pub fn processor_id(&self) -> u8 {
+//         self.local_apic.processor_id
+//     }
+// }
 
-// static FADT: Once<Fadt> = Once::new();
 static FADT: Once<Mutex<Fadt>> = Once::new();
-static APIC_INFO: Once<ApicInfo> = Once::new();
+static MADT: Once<Pin<&Madt>> = Once::new();
 
-pub unsafe fn init(rsdp: &'static Rsdp) {
+pub fn init(rsdp: &'static Rsdp) {
     // let rsdp = unsafe { rsdp_addr.ref_::<Rsdp>() };
     // if !rsdp.is_valid() {
     //     error!("RSDP isn't valid.");
@@ -210,8 +210,15 @@ pub unsafe fn init(rsdp: &'static Rsdp) {
     info!("FADT is found: 0x{:X}", fadt_ptr as u64);
     FADT.call_once(|| unsafe { Mutex::new(*fadt_ptr) });
 
+    // APIC_INFO.call_once(|| ApicInfo::from_madt(madt));
+    // for entry in madt.entries() {
+    //     if let MadtEntry::LocalApic(lapic_entry) = entry {
+    //         info!("lapic entry: {:?}", lapic_entry);
+    //     }
+    // }
+
     info!("MADT is found: 0x{:X}", madt_ptr as u64);
-    APIC_INFO.call_once(|| ApicInfo::from_madt(madt));
+    MADT.call_once(|| madt);
 }
 
 const PM_TIMER_FREQ: u32 = 3579545;
@@ -250,8 +257,14 @@ pub fn wait_milli_secs(msec: u32) {
 //     //     .expect("acpi::get_fadt is called before calling acpi::init.")
 // }
 
-pub fn get_apic_info() -> &'static ApicInfo {
-    APIC_INFO
-        .get()
-        .expect("acpi::get_apic_info is called before calling acpi::init.")
+// pub fn get_apic_info() -> &'static ApicInfo {
+//     APIC_INFO
+//         .get()
+//         .expect("acpi::get_apic_info is called before calling acpi::init.")
+// }
+
+pub fn get_madt() -> Pin<&'static Madt> {
+    debug_assert!(MADT.is_completed());
+
+    unsafe { *MADT.get_unchecked() }
 }

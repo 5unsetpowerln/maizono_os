@@ -36,6 +36,7 @@ goblin = { version = "0.8.2", default-features = false, features = [
     "endian_fd",
 ] }
 bitflags = "2.9.1"
+raw-cpuid = "11.6.0"
 
 [features]
 logging_in_interrupt_handler = []

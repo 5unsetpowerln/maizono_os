@@ -14,6 +14,7 @@ extern crate alloc;
 
 mod acpi;
 mod allocator;
+mod cpu;
 mod device;
 mod error;
 mod fat;
@@ -25,6 +26,7 @@ mod logger;
 mod memory_map;
 mod message;
 mod mouse;
+mod mutex;
 mod paging;
 mod pci;
 mod qemu;
@@ -35,6 +37,7 @@ mod terminal;
 mod timer;
 mod types;
 mod util;
+mod x64;
 
 use core::arch::asm;
 use core::panic::PanicInfo;
@@ -162,8 +165,15 @@ fn main(boot_info: &BootInfo) -> ! {
     logger::init();
 
     paging::init();
+
     gdt::init();
+
     frame_manager::init(&boot_info.memory_map);
+
+    acpi::init(boot_info.rsdp);
+
+    cpu::init();
+
     allocator::init();
     fat::init(boot_info.volume_image);
 
@@ -174,8 +184,6 @@ fn main(boot_info: &BootInfo) -> ! {
         .unwrap()
         .init()
         .unwrap_or_else(|err| error!("{:#?}", err));
-
-    unsafe { acpi::init(boot_info.rsdp) };
 
     for i in 0..16 {
         kprint!("{:04x}:", i * 16);
