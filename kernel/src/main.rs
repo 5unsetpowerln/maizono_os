@@ -181,11 +181,6 @@ fn main(boot_info: &BootInfo) -> ! {
     let layer_ids = init_graphic(boot_info);
     LAYER_IDS.call_once(|| layer_ids);
 
-    // pci::devices()
-    //     .unwrap()
-    //     .init()
-    //     .unwrap_or_else(|err| error!("{:#?}", err));
-
     for i in 0..16 {
         kprint!("{:04x}:", i * 16);
         for j in 0..8 {
@@ -201,16 +196,17 @@ fn main(boot_info: &BootInfo) -> ! {
         kprint!("\n");
     }
 
-    without_interrupts(|| {
-        ps2::init(true, false);
-        interrupts::init();
+    ps2::init(true, false);
 
-        timer::init_lagic_timer();
-        task::init();
-        terminal::init();
-    });
+    interrupts::init();
 
-    without_interrupts(|| {
+    timer::init_lagic_timer();
+
+    task::init();
+
+    terminal::init();
+
+    {
         let mut task_manager = task::TASK_MANAGER.wait().lock();
 
         let terminal_task_id = task_manager
@@ -238,7 +234,7 @@ fn main(boot_info: &BootInfo) -> ! {
             terminal_task_id,
             draw_layer_task_id,
         });
-    });
+    }
 
     let terminal_task_id = TASK_IDS.wait().terminal_task_id;
 
@@ -246,8 +242,6 @@ fn main(boot_info: &BootInfo) -> ! {
     test_main();
 
     loop {
-        x86_64::instructions::interrupts::disable();
-
         let message_opt = task::TASK_MANAGER
             .wait()
             .lock()
@@ -255,26 +249,21 @@ fn main(boot_info: &BootInfo) -> ! {
             .expect("Failed to get a message of main task.");
 
         if let Some(message) = message_opt {
-            x86_64::instructions::interrupts::enable();
             match message {
                 message::Message::PS2KeyboardInterrupt(result) => {
                     if let Ok(scancode) = result {
                         if let Some(key_code) = ps2::read_key_event(scancode) {
-                            without_interrupts(|| {
-                                TASK_MANAGER
-                                    .wait()
-                                    .lock()
-                                    .send_message_to_task(
-                                        terminal_task_id,
-                                        &message::Message::KeyInput(key_code),
-                                    )
-                                    .unwrap();
-                            });
+                            TASK_MANAGER
+                                .wait()
+                                .lock()
+                                .send_message_to_task(
+                                    terminal_task_id,
+                                    &message::Message::KeyInput(key_code),
+                                )
+                                .unwrap();
                         } else {
-                            // todo!()
                         }
                     } else {
-                        // todo!()
                     }
                 }
                 message::Message::LocalAPICTimerInterrupt => {}
@@ -292,7 +281,6 @@ fn main(boot_info: &BootInfo) -> ! {
                 .sleep(1)
                 .expect("Failed to sleep main task.");
 
-            x86_64::instructions::interrupts::enable();
             continue;
         }
     }
@@ -300,13 +288,12 @@ fn main(boot_info: &BootInfo) -> ! {
 
 fn draw_layer_task(task_id: u64, _data: u64) {
     loop {
-        if let Some(message::Message::DrawLayer) = without_interrupts(|| {
-            TASK_MANAGER
-                .wait()
-                .lock()
-                .receive_message_from_task(task_id)
-                .unwrap()
-        }) {
+        if let Some(message::Message::DrawLayer) = TASK_MANAGER
+            .wait()
+            .lock()
+            .receive_message_from_task(task_id)
+            .unwrap()
+        {
             LAYER_MANAGER.lock().draw();
         } else {
             TASK_MANAGER.wait().sleep(task_id).unwrap();
