@@ -1,7 +1,9 @@
 use core::alloc::{GlobalAlloc, Layout};
 use core::ptr;
 
-use super::{Locked, align_up};
+use crate::mutex::Mutex;
+
+use super::align_up;
 
 pub(crate) struct BumpAllocator {
     heap_start: usize,
@@ -27,9 +29,9 @@ impl BumpAllocator {
     }
 }
 
-unsafe impl GlobalAlloc for Locked<BumpAllocator> {
+unsafe impl GlobalAlloc for Mutex<BumpAllocator> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let mut bump = self.inner.lock();
+        let mut bump = self.lock();
 
         let alloc_start = align_up(bump.next, layout.align());
         let alloc_end = match alloc_start.checked_add(layout.size()) {

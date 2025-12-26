@@ -1,9 +1,11 @@
+use alloc::boxed::Box;
 use alloc::sync::Arc;
 use common::graphic::{RgbColor, rgb};
 use glam::{I64Vec2, U64Vec2, u64vec2};
-use spin::{Lazy, Mutex};
+use spin::Lazy;
 
 use crate::graphic::PixelWriter;
+use crate::mutex::Mutex;
 
 pub const MOUSE_CURSOR_WIDTH: usize = 15;
 pub const MOUSE_CURSOR_HEIGHT: usize = 24;
@@ -70,7 +72,7 @@ pub enum MouseEvent {
     RightClick,
 }
 
-type ThreadSafeSharedPixelWriter = Arc<Mutex<dyn PixelWriter>>;
+type ThreadSafeSharedPixelWriter = Arc<Mutex<Box<dyn PixelWriter>>>;
 
 pub fn draw_mouse_cursor<'a>(writer: ThreadSafeSharedPixelWriter, position: U64Vec2) {
     let mut writer = writer.lock();

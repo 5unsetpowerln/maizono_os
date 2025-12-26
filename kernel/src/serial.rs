@@ -1,6 +1,7 @@
 use core::fmt::Write;
 
-use spin::{Lazy, Mutex};
+use crate::mutex::Mutex;
+use spin::Lazy;
 use uart_16550::SerialPort;
 use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::instructions::port::Port;

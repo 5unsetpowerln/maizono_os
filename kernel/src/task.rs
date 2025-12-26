@@ -8,14 +8,14 @@ use slotmap::{DefaultKey, SlotMap};
 use spin::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::allocator::Locked;
 use crate::gdt::{get_kernel_cs, get_kernel_ss};
 use crate::message::Message;
+use crate::mutex::Mutex;
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
 use crate::util::read_cr3_raw;
 
 pub const TASK_TIMER_PERIOD: u64 = (TIMER_FREQ as u64 / 100) * 2;
-pub static TASK_MANAGER: Once<Locked<TaskManager>> = Once::new();
+pub static TASK_MANAGER: Once<Mutex<TaskManager>> = Once::new();
 
 #[repr(i8)]
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Copy, Clone, TryFromPrimitive)]
@@ -28,7 +28,7 @@ pub enum PriorityLevel {
 }
 
 pub fn init() {
-    TASK_MANAGER.call_once(|| Locked::new(TaskManager::new()));
+    TASK_MANAGER.call_once(|| Mutex::new(TaskManager::new()));
 
     without_interrupts(|| {
         let mut timer_manager = timer::TIMER_MANAGER.lock();
@@ -451,7 +451,7 @@ pub trait TaskManagerTrait {
     fn sleep(&self, id: u64) -> Result<()>;
 }
 
-impl TaskManagerTrait for Locked<TaskManager> {
+impl TaskManagerTrait for Mutex<TaskManager> {
     fn switch_task(&self, current_sleep: bool) {
         x86_64::instructions::interrupts::disable();
         let mut self_ = self.lock();

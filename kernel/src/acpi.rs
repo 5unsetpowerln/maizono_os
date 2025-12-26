@@ -15,8 +15,10 @@ use acpi::{
 };
 use common::address::PhysPtr;
 use log::{debug, error, info};
-use spin::{Mutex, Once};
+use spin::Once;
 use x86_64::instructions::port::{Port, PortReadOnly};
+
+use crate::mutex::Mutex;
 
 trait Validate {
     fn is_valid(&self) -> bool;

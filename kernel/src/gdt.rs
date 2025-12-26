@@ -1,12 +1,13 @@
 use core::arch::naked_asm;
 
-use spin::{Mutex, MutexGuard, Once};
+use spin::Once;
 use x86_64::{
     PrivilegeLevel::Ring0,
-    instructions::interrupts::without_interrupts,
     registers::segmentation::{CS, DS, ES, FS, GS, SS, Segment},
     structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
 };
+
+use crate::mutex::Mutex;
 
 static GDT: Mutex<GlobalDescriptorTable> = Mutex::new(GlobalDescriptorTable::new());
 static KERNEL_CS: Once<SegmentSelector> = Once::new();

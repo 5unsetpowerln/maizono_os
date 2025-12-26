@@ -4,10 +4,11 @@ use log::debug;
 use mouse::Mouse;
 use num_enum::TryFromPrimitive;
 use pc_keyboard::{DecodedKey, HandleControl, ScancodeSet1, layouts};
-use spin::{Lazy, Mutex, Once};
+use spin::{Lazy, Once};
 use static_assertions::const_assert;
 
 use crate::device::ps2::keyboard::ScanCode;
+use crate::mutex::Mutex;
 
 pub mod controller;
 pub mod keyboard;

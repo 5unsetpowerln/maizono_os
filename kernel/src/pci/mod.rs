@@ -4,9 +4,9 @@ use core::{arch::asm, marker::PhantomData};
 
 use arrayvec::ArrayVec;
 use error::PciError;
-use spin::{Mutex, MutexGuard};
 
 use crate::error::Result;
+use crate::mutex::{Mutex, MutexGuard};
 
 /// Address of CONFIG_ADDRESS register in IO Address Space
 const CONFIG_ADDRESS_ADDRESS: u16 = 0x0cf8;
@@ -242,7 +242,8 @@ impl<'a, const CAP: usize> Devices<'a, CAP> {
 }
 
 pub fn devices() -> Result<MutexGuard<'static, Devices<'static, DEVICE_CAPACITY>>> {
-    DEVICES.try_lock().ok_or(PciError::DeviceLockError.into())
+    Ok(DEVICES.try_lock().unwrap())
+    // DEVICES.try_lock().ok_or(PciError::DeviceLockError.into())
 }
 
 fn is_single_function_device(header_type: u8) -> bool {

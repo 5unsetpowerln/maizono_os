@@ -2,10 +2,11 @@ use core::cmp::Ordering;
 
 use alloc::collections::binary_heap::BinaryHeap;
 use log::debug;
-use spin::{Mutex, Once};
+use spin::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::idt::InterruptStackFrame;
 
+use crate::mutex::Mutex;
 use crate::task::TASK_MANAGER;
 use crate::{
     acpi,

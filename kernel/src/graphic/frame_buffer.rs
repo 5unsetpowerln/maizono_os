@@ -1,8 +1,9 @@
 use crate::error::Result;
+use crate::mutex::Mutex;
 use alloc::{sync::Arc, vec::Vec};
 use common::graphic::{GraphicInfo, PixelFormat, RgbColor};
 use glam::{U64Vec2, u64vec2};
-use spin::{Mutex, Once};
+use spin::Once;
 use thiserror_no_std::Error;
 
 use super::{PixelWriter, PixelWriterCopyable, Rectangle};

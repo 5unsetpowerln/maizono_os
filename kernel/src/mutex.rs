@@ -1,123 +1,119 @@
 use core::cell::{Cell, UnsafeCell};
 use core::hint::spin_loop;
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
-use core::ptr::addr_of_mut;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use thiserror_no_std::Error;
 use x86_64::instructions::interrupts;
 
 use crate::cpu::{self, apic_id_to_idx, get_apic_count_max, get_local_apic_id};
+use crate::error::Result;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum MutexError {
+    #[error("Unsupported pixel format.")]
+    LockError,
+}
 
 struct PerApicLockCounter {
-    array: [UnsafeCell<usize>; get_apic_count_max()],
+    array: UnsafeCell<[usize; get_apic_count_max()]>,
 }
 
 unsafe impl Sync for PerApicLockCounter {}
 
 impl PerApicLockCounter {
+    const fn new() -> Self {
+        Self {
+            array: UnsafeCell::new([0; get_apic_count_max()]),
+        }
+    }
+
     unsafe fn increment(&self, apic_id: u8) {
+        let array = &mut unsafe { *self.array.get() };
         let idx = cpu::apic_id_to_idx(apic_id);
 
-        debug_assert!(self.array.len() > idx);
+        debug_assert!(array.len() > idx);
 
-        unsafe {
-            let count_uc = self.array.get_unchecked(idx);
-            *count_uc.get() += 1;
-        }
+        array[idx] += 1;
     }
 
     /// per-cpuロックカウントを1減らす。
     /// すでに0の場合は何もしない。
     unsafe fn decrement(&self, apic_id: u8) {
+        let array = &mut unsafe { *self.array.get() };
         let idx = cpu::apic_id_to_idx(apic_id);
-        debug_assert!(self.array.len() > idx);
 
-        let prev = unsafe { self.get_by_idx(idx) };
+        debug_assert!(array.len() > idx);
 
-        if prev > 0 {
-            unsafe {
-                let count_uc = self.array.get_unchecked(idx);
-                *count_uc.get() -= 1;
-            }
-        }
+        array[idx] -= 1;
     }
 
     unsafe fn get_by_idx(&self, idx: usize) -> usize {
-        debug_assert!(self.array.len() > idx);
+        let array = &mut unsafe { *self.array.get() };
 
-        unsafe {
-            let count_uc = self.array.get_unchecked(idx);
-            *count_uc.get()
-        }
+        debug_assert!(array.len() > idx);
+
+        array[idx]
     }
 
     unsafe fn get(&self, apic_id: u8) -> usize {
+        let array = &mut unsafe { *self.array.get() };
         let idx = cpu::apic_id_to_idx(apic_id);
 
-        debug_assert!(self.array.len() > idx);
+        debug_assert!(array.len() > idx);
 
-        unsafe {
-            let count_uc = self.array.get_unchecked(idx);
-            *count_uc.get()
-        }
+        array[idx]
     }
 }
 
 struct PerApicInitialInterruptState {
-    array: [UnsafeCell<bool>; get_apic_count_max()],
+    array: UnsafeCell<[bool; get_apic_count_max()]>,
 }
 
 unsafe impl Sync for PerApicInitialInterruptState {}
 
 impl PerApicInitialInterruptState {
+    const fn new() -> Self {
+        Self {
+            array: UnsafeCell::new([true; get_apic_count_max()]),
+        }
+    }
+
     unsafe fn set(&self, apic_id: u8, state: bool) {
         let idx = apic_id_to_idx(apic_id);
+        let array = &mut unsafe { *self.array.get() };
 
-        debug_assert!(self.array.len() > idx);
+        debug_assert!(array.len() > idx);
 
-        unsafe {
-            let state_uc = self.array.get_unchecked(idx);
-            *state_uc.get() = state;
-        }
+        array[idx] = state;
     }
 
     unsafe fn get(&self, apic_id: u8) -> bool {
         let idx = apic_id_to_idx(apic_id);
+        let array = &mut unsafe { *self.array.get() };
 
-        debug_assert!(self.array.len() > idx);
+        debug_assert!(array.len() > idx);
 
-        unsafe {
-            let state_uc = self.array.get_unchecked(idx);
-            *state_uc.get()
-        }
+        array[idx]
     }
 }
 
-static mut PER_APIC_LOCK_COUNTER: MaybeUninit<PerApicLockCounter> = MaybeUninit::uninit();
-static mut PER_APIC_INITIAL_INTERRUPT_STATE: MaybeUninit<PerApicInitialInterruptState> =
-    MaybeUninit::uninit();
+static PER_APIC_LOCK_COUNTER: PerApicLockCounter = PerApicLockCounter::new();
+static PER_LAPIC_INIT_INTERRUPT_STATE: PerApicInitialInterruptState =
+    PerApicInitialInterruptState::new();
 
-pub fn get_per_apic_lock_counter() -> &'static PerApicLockCounter {
-    unsafe { PER_APIC_LOCK_COUNTER.assume_init_ref() }
-}
-
-pub fn get_per_apic_initial_interrupt_state() -> &'static PerApicInitialInterruptState {
-    unsafe { PER_APIC_INITIAL_INTERRUPT_STATE.assume_init_ref() }
-}
-
-pub struct SpinMutex<T> {
+pub struct Mutex<T: ?Sized> {
     locked: AtomicBool,
     data: UnsafeCell<T>,
 }
 
-pub struct SpinMutexGuard<'a, T> {
+pub struct MutexGuard<'a, T> {
     _not_send: PhantomData<Cell<()>>,
-    m: &'a SpinMutex<T>,
+    m: &'a Mutex<T>,
 }
 
-impl<T> SpinMutex<T> {
+impl<T> Mutex<T> {
     pub const fn new(value: T) -> Self {
         Self {
             locked: AtomicBool::new(false),
@@ -125,28 +121,24 @@ impl<T> SpinMutex<T> {
         }
     }
 
-    pub fn lock(&self) -> SpinMutexGuard<'_, T> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         let interrupts_enabled = interrupts::are_enabled();
 
         if interrupts_enabled {
             interrupts::disable();
         }
 
-        let per_apic_lock_counter = get_per_apic_lock_counter();
-        let per_apic_initial_interrupt_state = get_per_apic_initial_interrupt_state();
-
-        let current_lock_count = unsafe { per_apic_lock_counter.get(get_local_apic_id()) };
+        let current_lock_count = unsafe { PER_APIC_LOCK_COUNTER.get(get_local_apic_id()) };
 
         if current_lock_count == 0 {
             unsafe {
-                per_apic_initial_interrupt_state.set(get_local_apic_id(), interrupts_enabled);
+                PER_LAPIC_INIT_INTERRUPT_STATE.set(get_local_apic_id(), interrupts_enabled);
             }
         }
 
         // per-cpuロックカウンタをインクリメントする
         unsafe {
-            let per_apic_lock_counter = get_per_apic_lock_counter();
-            per_apic_lock_counter.increment(get_local_apic_id());
+            PER_APIC_LOCK_COUNTER.increment(get_local_apic_id());
         }
 
         while self
@@ -157,27 +149,31 @@ impl<T> SpinMutex<T> {
             spin_loop();
         }
 
-        SpinMutexGuard {
+        MutexGuard {
             m: self,
             _not_send: PhantomData,
         }
     }
+
+    pub fn try_lock(&self) -> Result<MutexGuard<'_, T>> {
+        todo!()
+    }
 }
 
-impl<T> Deref for SpinMutexGuard<'_, T> {
+impl<T> Deref for MutexGuard<'_, T> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { &*self.m.data.get() }
     }
 }
 
-impl<T> DerefMut for SpinMutexGuard<'_, T> {
+impl<T> DerefMut for MutexGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.m.data.get() }
     }
 }
 
-impl<T> Drop for SpinMutexGuard<'_, T> {
+impl<T> Drop for MutexGuard<'_, T> {
     fn drop(&mut self) {
         // Local APICの割り込みを無効化する
         if interrupts::are_enabled() {
@@ -185,38 +181,20 @@ impl<T> Drop for SpinMutexGuard<'_, T> {
         }
 
         // per-cpuロックカウンタをデクリメントする
-        let per_apic_lock_counter = get_per_apic_lock_counter();
         unsafe {
-            per_apic_lock_counter.decrement(get_local_apic_id());
+            PER_APIC_LOCK_COUNTER.decrement(get_local_apic_id());
         }
 
         // ロックを解除する
         self.m.locked.store(false, Ordering::Release);
 
         // per-cpuロックカウンタが0になったら割り込み状態を初期状態に戻す
-        let count = unsafe { per_apic_lock_counter.get(get_local_apic_id()) };
-        if count == 0 {
-            let per_apic_initial_interrupt_state = get_per_apic_initial_interrupt_state();
-            if unsafe { per_apic_initial_interrupt_state.get(get_local_apic_id()) } {
-                interrupts::enable();
-            }
+        let count = unsafe { PER_APIC_LOCK_COUNTER.get(get_local_apic_id()) };
+        if count == 0 && unsafe { PER_LAPIC_INIT_INTERRUPT_STATE.get(get_local_apic_id()) } {
+            interrupts::enable();
         }
     }
 }
 
-unsafe impl<T: Send> Sync for SpinMutex<T> {}
-unsafe impl<T: Send> Send for SpinMutex<T> {}
-
-pub fn init() {
-    let per_apic_initial_interrupt_state = PerApicInitialInterruptState {
-        array: core::array::from_fn(|_| UnsafeCell::new(false)),
-    };
-    let per_apic_lock_counter = PerApicLockCounter {
-        array: core::array::from_fn(|_| UnsafeCell::new(0)),
-    };
-
-    unsafe {
-        (*addr_of_mut!(PER_APIC_INITIAL_INTERRUPT_STATE)).write(per_apic_initial_interrupt_state);
-        (*addr_of_mut!(PER_APIC_LOCK_COUNTER)).write(per_apic_lock_counter);
-    }
-}
+unsafe impl<T: Send> Sync for Mutex<T> {}
+unsafe impl<T: Send> Send for Mutex<T> {}

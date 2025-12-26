@@ -1,7 +1,5 @@
-use alloc::collections::VecDeque;
 use glam::{I64Vec2, U64Vec2};
 use pc_keyboard::DecodedKey;
-use spin::Mutex;
 
 use crate::{device::ps2::keyboard::KeyboardError, timer::Timer};
 

@@ -3,7 +3,9 @@ use core::{
     mem, ptr,
 };
 
-use super::{Locked, align_up};
+use crate::mutex::Mutex;
+
+use super::align_up;
 
 struct ListNode {
     size: usize,
@@ -110,7 +112,7 @@ impl LinkedListAllocator {
     }
 }
 
-unsafe impl GlobalAlloc for Locked<LinkedListAllocator> {
+unsafe impl GlobalAlloc for Mutex<LinkedListAllocator> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         // perform layout adjustment
         let (size, align) = LinkedListAllocator::size_align(layout);

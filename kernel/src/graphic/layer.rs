@@ -1,11 +1,12 @@
 use core::mem::MaybeUninit;
 
+use crate::mutex::Mutex;
 use alloc::{format, sync::Arc, vec::Vec};
 use common::graphic::GraphicInfo;
 use glam::{I64Vec2, U64Vec2, u64vec2};
 use log::debug;
 use slotmap::SlotMap;
-use spin::{Lazy, Mutex};
+use spin::Lazy;
 
 use crate::{
     graphic::{

@@ -1,6 +1,6 @@
 use core::ops::{Deref, DerefMut};
 
-use spin::Mutex;
+use crate::mutex::Mutex;
 use thiserror_no_std::Error;
 use uefi::mem::memory_map::{MemoryMap, MemoryMapOwned};
 use x86_64::PhysAddr;

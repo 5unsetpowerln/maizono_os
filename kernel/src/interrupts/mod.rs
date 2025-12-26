@@ -1,12 +1,15 @@
 pub mod apic;
 
+use crate::acpi::get_madt;
+use crate::cpu::{self, get_local_apic_info_by_idx};
 use crate::message::Message;
+use crate::mutex::Mutex;
 use crate::x64::{IA32_APIC_BASE_MSR, write_msr};
 use crate::{acpi, device::ps2};
 use ::acpi::madt::InterruptSourceOverrideEntry;
 use apic::{IoApic, LocalApic};
 use log::{error, info};
-use spin::{Lazy, Mutex};
+use spin::Lazy;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
@@ -101,18 +104,23 @@ extern "x86-interrupt" fn general_protection_fault_handler(
 pub fn init() {
     init_idt();
     unsafe { disable_pic_8259() };
-    init_apic();
+    init_first_local_apic();
 }
 
 fn init_idt() {
     IDT.load();
 }
 
-fn init_apic() {
+fn init_first_local_apic() {
+    let local_apic_info = get_local_apic_info_by_idx(0);
+    let local_apic_base = get_madt().local_apic_address;
+    let io_apic_info = cpu::get_io_apic_info_by_idx(0);
+    let io_apic_base = io_apic_info.io_apic_address;
+
     // Enabling APIC
     {
         // output a local apic base which is from MADT and once which is from IA32_APIC_BASE MSR
-        let local_apic_base = acpi::get_apic_info().local_apic_base();
+        // let local_apic_base = .local_apic_base();
 
         // update IA32_APIC_BASE MSR value to local apic base which is from MADT
         // and set bit 11 to enable apic (not local apic)
@@ -122,7 +130,7 @@ fn init_apic() {
     // Initializing Local APIC
     {
         const MASKED: u32 = 1 << 16;
-        let mut lapic = LocalApic::new(acpi::get_apic_info().local_apic_base());
+        let mut lapic = LocalApic::new(local_apic_base);
 
         // https://github.com/mit-pdos/xv6-public/blob/master/lapic.c
         // https://wiki.osdev.org/APIC
@@ -169,15 +177,12 @@ fn init_apic() {
 
     // Initializing I/O APIC
     {
-        info!(
-            "I/O APIC base: 0x{:X}",
-            acpi::get_apic_info().io_apic_base()
-        );
-        let io_apic = IoApic::new(acpi::get_apic_info().io_apic_base());
+        info!("I/O APIC base: 0x{:X}", io_apic_base);
+        let io_apic = IoApic::new(io_apic_base);
 
         // https://github.com/mit-pdos/xv6-public/blob/master/ioapic.c
 
-        if io_apic.get_id() != acpi::get_apic_info().io_apic_id() {
+        if io_apic.get_id() != io_apic_info.io_apic_id {
             panic!("id isn't equal to I/O Apic id; not a MP");
         }
 
@@ -191,7 +196,7 @@ fn init_apic() {
         }
 
         // Redirect external interrupts to IDT via I/O Apic.
-        let cpu0 = (acpi::get_apic_info().processor_id() as u64) << (32 + 24);
+        let cpu0 = (local_apic_info.processor_id as u64) << (32 + 24);
         unsafe {
             io_apic.set_redirection_entry_at(
                 IRQ::Keyboard as u32,

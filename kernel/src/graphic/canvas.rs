@@ -1,7 +1,6 @@
 use alloc::sync::Arc;
 use common::graphic::{GraphicInfo, RgbColor};
 use glam::{U64Vec2, u64vec2};
-use spin::Mutex;
 
 use crate::{
     error::Result,

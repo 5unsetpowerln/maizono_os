@@ -4,7 +4,7 @@ use core::ptr::{self, NonNull};
 
 use x86_64::PhysAddr;
 
-use super::Locked;
+use crate::mutex::Mutex;
 
 /// The block sizes to use.
 ///
@@ -51,7 +51,7 @@ impl FixedSizeBlockAllocator {
     }
 }
 
-unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
+unsafe impl GlobalAlloc for Mutex<FixedSizeBlockAllocator> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut allocator = self.lock();
         match list_index(&layout) {

@@ -1,10 +1,10 @@
 use core::{ascii, fmt::Debug, ops::Deref};
 
+use crate::mutex::Mutex;
 use alloc::sync::Arc;
 use common::graphic::RgbColor;
 use font::{GARBLED_FONT, U8_FONT};
 use glam::{U64Vec2, u64vec2};
-use spin::Mutex;
 
 use crate::{
     error::Result,

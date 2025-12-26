@@ -166,24 +166,25 @@ fn main(boot_info: &BootInfo) -> ! {
 
     paging::init();
 
-    gdt::init();
-
-    frame_manager::init(&boot_info.memory_map);
-
     acpi::init(boot_info.rsdp);
 
     cpu::init();
 
+    gdt::init();
+
+    frame_manager::init(&boot_info.memory_map);
+
     allocator::init();
+
     fat::init(boot_info.volume_image);
 
     let layer_ids = init_graphic(boot_info);
     LAYER_IDS.call_once(|| layer_ids);
 
-    pci::devices()
-        .unwrap()
-        .init()
-        .unwrap_or_else(|err| error!("{:#?}", err));
+    // pci::devices()
+    //     .unwrap()
+    //     .init()
+    //     .unwrap_or_else(|err| error!("{:#?}", err));
 
     for i in 0..16 {
         kprint!("{:04x}:", i * 16);

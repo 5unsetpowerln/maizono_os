@@ -3,6 +3,8 @@ use alloc::{format, string::String};
 use log::LevelFilter;
 use spin::rwlock::RwLock;
 
+use crate::serial::emergency_print;
+use crate::{allocator, serial_emergency_println};
 use crate::{graphic::console, kprintln, serial_println};
 
 pub struct Logger;
@@ -17,6 +19,15 @@ impl log::Log for Logger {
 
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
+            if !allocator::is_intialized() {
+                serial_emergency_println!("{}", record.args());
+                if console::is_initialized() && *CONSOLE_ENABLED.read() {
+                    kprintln!("{}", record.args());
+                }
+
+                return;
+            }
+
             let level_msg = format!(
                 "[{}{}]:  ",
                 " ".repeat(5 - record.level().as_str().chars().count()),

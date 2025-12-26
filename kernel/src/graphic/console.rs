@@ -9,10 +9,10 @@ use alloc::{sync::Arc, vec::Vec};
 use ascii::Char;
 use common::graphic::{RgbColor, rgb};
 use glam::u64vec2;
-use spin::{Mutex, Once};
+use spin::Once;
 use x86_64::instructions::interrupts::without_interrupts;
 
-use crate::{allocator::Locked, error::Result, graphic::canvas::Canvas, serial_println};
+use crate::{error::Result, graphic::canvas::Canvas, mutex::Mutex, serial_println};
 
 use self::line::Line;
 
@@ -174,7 +174,7 @@ mod line {
     }
 }
 
-static CONSOLE: Once<Locked<Console>> = Once::new();
+static CONSOLE: Once<Mutex<Console>> = Once::new();
 
 pub struct Console {
     buffer: [Line<COLUMNS>; ROWS],
@@ -504,7 +504,7 @@ impl Console {
 
 pub fn init(canvas: Arc<Mutex<Canvas>>, bg_color: RgbColor, fg_color: RgbColor) -> Result<()> {
     let console = Console::init(canvas, bg_color, fg_color)?;
-    CONSOLE.call_once(|| Locked::new(console));
+    CONSOLE.call_once(|| Mutex::new(console));
     Ok(())
 }
 
@@ -512,7 +512,7 @@ pub fn is_initialized() -> bool {
     CONSOLE.is_completed()
 }
 
-fn get_locked_console<'a>() -> &'a Locked<Console> {
+fn get_locked_console<'a>() -> &'a Mutex<Console> {
     let console = unsafe { CONSOLE.get_unchecked() };
 
     #[cfg(feature = "init_check")]

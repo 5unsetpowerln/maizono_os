@@ -4,24 +4,10 @@ mod linked_list_allocator;
 
 use fixed_size_block_allocator::FixedSizeBlockAllocator;
 use linked_list_allocator::LinkedListAllocator;
+use spin::once::Once;
 
 use crate::frame_manager;
-
-pub struct Locked<A: ?Sized> {
-    inner: spin::Mutex<A>,
-}
-
-impl<A> Locked<A> {
-    pub const fn new(inner: A) -> Self {
-        Self {
-            inner: spin::Mutex::new(inner),
-        }
-    }
-
-    pub fn lock(&self) -> spin::MutexGuard<A> {
-        self.inner.lock()
-    }
-}
+use crate::mutex::Mutex;
 
 /// Align the given address `addr` upwards to alignment `align`.
 ///
@@ -33,7 +19,9 @@ pub fn align_up(addr: usize, align: usize) -> usize {
 const HEAP_FRAME_COUNT: usize = 64 * 512;
 
 #[global_allocator]
-static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
+static ALLOCATOR: Mutex<FixedSizeBlockAllocator> = Mutex::new(FixedSizeBlockAllocator::new());
+
+static INITIALIZED: Once<()> = Once::new();
 
 pub fn init() {
     let heap_frame_head =
@@ -42,6 +30,11 @@ pub fn init() {
     let heap_size = HEAP_FRAME_COUNT * frame_manager::BYTES_PER_FRAME;
 
     unsafe { ALLOCATOR.lock().init(heap_start, heap_size) };
+    INITIALIZED.call_once(|| {});
+}
+
+pub fn is_intialized() -> bool {
+    INITIALIZED.is_completed()
 }
 
 #[test_case]
