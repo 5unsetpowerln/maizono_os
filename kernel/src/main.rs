@@ -52,18 +52,12 @@ use graphic::{
     frame_buffer::{self},
 };
 use log::{debug, error, info};
-use pc_keyboard::DecodedKey;
 use spin::once::Once;
-use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::graphic::{create_canvas_and_layer, layer};
 use task::TaskManagerTrait;
 
-use self::{
-    graphic::layer::LAYER_MANAGER,
-    task::{TASK_MANAGER, Task},
-    util::read_cr3_raw,
-};
+use self::{graphic::layer::LAYER_MANAGER, task::TASK_MANAGER};
 
 const KERNEL_STACK_SIZE: usize = 1024 * 1024;
 static KERNEL_STACK: KernelStack = KernelStack::new();

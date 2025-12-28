@@ -1,9 +1,8 @@
-use log::debug;
-use x86_64::{instructions::interrupts::without_interrupts, structures::idt::InterruptStackFrame};
+use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::{
-    device::ps2::{self, InterpretableResponse, KEYBOARD_CONTROLLER, Response, read_key_event},
-    interrupts, kprint, message, task,
+    device::ps2::{self, InterpretableResponse, Response},
+    interrupts, message, task,
 };
 
 use super::controller::{Controller, ControllerError};
@@ -94,7 +93,8 @@ impl Keyboard {
                 return Err(KeyboardError::CommandNotAcknowledged(response));
             }
         }
-        return Ok(());
+
+        Ok(())
     }
 
     pub unsafe fn get_current_scan_code(&mut self) -> Result<ScanCode> {
@@ -167,13 +167,11 @@ impl Keyboard {
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     let result = unsafe { ps2::KEYBOARD_CONTROLLER.wait().lock().read_data() };
 
-    without_interrupts(|| {
-        task::TASK_MANAGER
-            .wait()
-            .lock()
-            .send_message_to_task(1, &message::Message::PS2KeyboardInterrupt(result))
-            .expect("Failed to send a message to main task.");
-    }); // lock is dropped here.
+    task::TASK_MANAGER
+        .wait()
+        .lock()
+        .send_message_to_task(1, &message::Message::PS2KeyboardInterrupt(result))
+        .expect("Failed to send a message to main task.");
 
     interrupts::notify_end_of_interrupt();
 }

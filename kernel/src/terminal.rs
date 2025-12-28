@@ -12,14 +12,13 @@ use goblin::elf;
 use goblin::elf::program_header::PT_LOAD;
 use pc_keyboard::{DecodedKey, KeyCode};
 use spin::once::Once;
-use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::paging::page_table::{FrameError, PageTableEntry, PageTableLevel};
 use x86_64::structures::paging::{PageTable, PageTableFlags, PageTableIndex};
 use x86_64::{PhysAddr, registers};
 
 use crate::fat::DirectoryEntry;
 use crate::fat::get_root_cluster;
-use crate::fat::{self, get_sector_by_cluster};
+use crate::fat::{self};
 use crate::frame_manager::FrameID;
 use crate::gdt::call_app;
 use crate::graphic::console;
@@ -336,32 +335,27 @@ pub fn init() {
 }
 
 pub fn terminal_task(task_id: u64, _data: u64) {
-    without_interrupts(|| {
-        *logger::CONSOLE_ENABLED.write() = false;
-    });
+    *logger::CONSOLE_ENABLED.write() = false;
 
     let draw_layer_task_id = TASK_IDS.wait().draw_layer_task_id;
     TERMINAL.wait().lock().display_on_console();
 
     loop {
-        if let Some(message::Message::KeyInput(decoded_key)) = without_interrupts(|| {
-            TASK_MANAGER
-                .wait()
-                .lock()
-                .receive_message_from_task(task_id)
-                .unwrap()
-        }) {
+        if let Some(message::Message::KeyInput(decoded_key)) = TASK_MANAGER
+            .wait()
+            .lock()
+            .receive_message_from_task(task_id)
+            .unwrap()
+        {
             let mut terminal = TERMINAL.wait().lock();
             terminal.input_key(decoded_key);
             terminal.display_on_console();
         } else {
-            without_interrupts(|| {
-                TASK_MANAGER
-                    .wait()
-                    .lock()
-                    .send_message_to_task(draw_layer_task_id, &message::Message::DrawLayer)
-                    .unwrap();
-            });
+            TASK_MANAGER
+                .wait()
+                .lock()
+                .send_message_to_task(draw_layer_task_id, &message::Message::DrawLayer)
+                .unwrap();
 
             TASK_MANAGER.wait().sleep(task_id).unwrap();
             continue;

@@ -3,7 +3,6 @@ use core::fmt::Write;
 use crate::mutex::Mutex;
 use spin::Lazy;
 use uart_16550::SerialPort;
-use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::instructions::port::Port;
 
 pub static SERIAL1: Lazy<Mutex<SerialPort>> = Lazy::new(|| {
@@ -13,19 +12,11 @@ pub static SERIAL1: Lazy<Mutex<SerialPort>> = Lazy::new(|| {
 });
 
 pub fn _print(args: ::core::fmt::Arguments) {
-    // #[cfg(feature = "logging_in_interrupt_handler")]
-    // x86_64::instructions::interrupts::disable();
-
-    without_interrupts(|| {
-        use core::fmt::Write;
-        SERIAL1
-            .lock()
-            .write_fmt(args)
-            .expect("Printing to serial failed");
-    });
-
-    // #[cfg(feature = "logging_in_interrupt_handler")]
-    // x86_64::instructions::interrupts::enable();
+    use core::fmt::Write;
+    SERIAL1
+        .lock()
+        .write_fmt(args)
+        .expect("Printing to serial failed");
 }
 
 struct EmergencySerial {}
@@ -63,10 +54,8 @@ impl core::fmt::Write for EmergencySerial {
 }
 
 pub fn emergency_print(args: ::core::fmt::Arguments) {
-    without_interrupts(|| {
-        let mut s = EmergencySerial {};
-        s.write_fmt(args).unwrap();
-    });
+    let mut s = EmergencySerial {};
+    s.write_fmt(args).unwrap();
 }
 
 #[macro_export]

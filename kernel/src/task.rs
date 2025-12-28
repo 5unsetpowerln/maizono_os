@@ -6,7 +6,6 @@ use log::debug;
 use num_enum::TryFromPrimitive;
 use slotmap::{DefaultKey, SlotMap};
 use spin::Once;
-use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::gdt::{get_kernel_cs, get_kernel_ss};
 use crate::message::Message;
@@ -30,14 +29,12 @@ pub enum PriorityLevel {
 pub fn init() {
     TASK_MANAGER.call_once(|| Mutex::new(TaskManager::new()));
 
-    without_interrupts(|| {
-        let mut timer_manager = timer::TIMER_MANAGER.lock();
-        let current_tick = timer_manager.get_current_tick();
-        timer_manager.add_timer(Timer::new(
-            TASK_TIMER_PERIOD + current_tick,
-            TimerKind::PreemptiveMultitask,
-        ));
-    });
+    let mut timer_manager = timer::TIMER_MANAGER.lock();
+    let current_tick = timer_manager.get_current_tick();
+    timer_manager.add_timer(Timer::new(
+        TASK_TIMER_PERIOD + current_tick,
+        TimerKind::PreemptiveMultitask,
+    ));
 }
 
 #[naked]

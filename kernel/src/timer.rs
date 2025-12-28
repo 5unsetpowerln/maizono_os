@@ -3,7 +3,6 @@ use core::cmp::Ordering;
 use alloc::collections::binary_heap::BinaryHeap;
 use log::debug;
 use spin::Once;
-use x86_64::instructions::interrupts::without_interrupts;
 use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::mutex::Mutex;
@@ -150,13 +149,11 @@ pub fn init_lagic_timer() {
 }
 
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
-    without_interrupts(|| {
-        task::TASK_MANAGER
-            .wait()
-            .lock()
-            .send_message_to_task(1, &Message::LocalAPICTimerInterrupt)
-            .expect("Failed to send a message to main task.");
-    });
+    task::TASK_MANAGER
+        .wait()
+        .lock()
+        .send_message_to_task(1, &Message::LocalAPICTimerInterrupt)
+        .expect("Failed to send a message to main task.");
 
     let is_preemptive_multitask_timeout = { TIMER_MANAGER.lock().increment_tick() };
 

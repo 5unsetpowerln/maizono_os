@@ -10,7 +10,6 @@ use ascii::Char;
 use common::graphic::{RgbColor, rgb};
 use glam::u64vec2;
 use spin::Once;
-use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{error::Result, graphic::canvas::Canvas, mutex::Mutex, serial_println};
 
@@ -513,47 +512,34 @@ pub fn is_initialized() -> bool {
 }
 
 fn get_locked_console<'a>() -> &'a Mutex<Console> {
-    let console = unsafe { CONSOLE.get_unchecked() };
+    debug_assert!(CONSOLE.is_completed());
 
-    #[cfg(feature = "init_check")]
-    let console = CONSOLE.get().expect("Console is not initialized.");
-
-    console
+    unsafe { CONSOLE.get_unchecked() }
 }
 
 pub fn move_cursor_left() {
-    without_interrupts(|| {
-        get_locked_console().lock().move_cursor_left();
-    });
+    get_locked_console().lock().move_cursor_left();
 }
 
 pub fn move_cursor_right() {
-    without_interrupts(|| {
-        get_locked_console().lock().move_cursor_right();
-    })
+    get_locked_console().lock().move_cursor_right();
 }
 
 pub fn clear() {
-    without_interrupts(|| {
-        get_locked_console().lock().clear();
-    })
+    get_locked_console().lock().clear();
 }
 
 pub fn clear_current_line() {
-    without_interrupts(|| {
-        get_locked_console().lock().clear_current_line();
-    });
+    get_locked_console().lock().clear_current_line();
 }
 
 pub fn _print(args: ::core::fmt::Arguments) {
-    without_interrupts(|| {
-        use core::fmt::Write;
+    use core::fmt::Write;
 
-        get_locked_console()
-            .lock()
-            .write_fmt(args)
-            .expect("Failed to print string to console.");
-    });
+    get_locked_console()
+        .lock()
+        .write_fmt(args)
+        .expect("Failed to print string to console.");
 }
 
 #[macro_export]
