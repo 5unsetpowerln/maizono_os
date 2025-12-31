@@ -38,6 +38,43 @@ pub fn init() {
 }
 
 #[naked]
+pub unsafe extern "C" fn restore_context(ctx: &TaskContext) {
+    unsafe {
+        naked_asm!(
+            "push qword ptr [rdi + 0x28]", // SS
+            "push qword ptr [rdi + 0x70]", // RSP
+            "push qword ptr [rdi + 0x10]", // RFLAGS
+            "push qword ptr [rdi + 0x20]", // CS
+            "push qword ptr [rdi + 0x08]", // RIP
+            // コンテキストの復帰
+            "fxrstor [rdi + 0xc0]",
+            "mov rax, [rdi + 0x00]",
+            "mov cr3, rax",
+            "mov rax, [rdi + 0x30]",
+            "mov fs, ax",
+            "mov rax, [rdi + 0x38]",
+            "mov gs, ax",
+            "mov rax, [rdi + 0x40]",
+            "mov rbx, [rdi + 0x48]",
+            "mov rcx, [rdi + 0x50]",
+            "mov rdx, [rdi + 0x58]",
+            "mov rsi, [rdi + 0x68]",
+            "mov rbp, [rdi + 0x78]",
+            "mov r8,  [rdi + 0x80]",
+            "mov r9,  [rdi + 0x88]",
+            "mov r10, [rdi + 0x90]",
+            "mov r11, [rdi + 0x98]",
+            "mov r12, [rdi + 0xa0]",
+            "mov r13, [rdi + 0xa8]",
+            "mov r14, [rdi + 0xb0]",
+            "mov r15, [rdi + 0xb8]",
+            "mov rdi, [rdi + 0x60]",
+            "iretq",
+        )
+    }
+}
+
+#[naked]
 pub unsafe extern "C" fn switch_context(
     next_ctx: *const TaskContext,
     current_ctx: *mut TaskContext,
