@@ -1,4 +1,9 @@
-use core::arch::naked_asm;
+use core::{
+    arch::naked_asm,
+    cell::UnsafeCell,
+    ops::{Deref, DerefMut},
+    ptr::addr_of_mut,
+};
 
 use spin::Once;
 use x86_64::{
@@ -7,16 +12,43 @@ use x86_64::{
     structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
 };
 
-use crate::mutex::Mutex;
-
-static GDT: Mutex<GlobalDescriptorTable> = Mutex::new(GlobalDescriptorTable::new());
+// static mut GDT: SyncUnsafeCell<GlobalDescriptorTable> =
+// SyncUnsafeCell::new(GlobalDescriptorTable::new());
+// static GDT: Mutex<GlobalDescriptorTable> = Mutex::new(GlobalDescriptorTable::new());
+static mut GDT: GlobalDescTable = GlobalDescTable::new();
 static KERNEL_CS: Once<SegmentSelector> = Once::new();
 static KERNEL_SS: Once<SegmentSelector> = Once::new();
 static USER_CS: Once<SegmentSelector> = Once::new();
 static USER_SS: Once<SegmentSelector> = Once::new();
 
+struct GlobalDescTable {
+    table: UnsafeCell<x86_64::structures::gdt::GlobalDescriptorTable>,
+}
+impl GlobalDescTable {
+    pub const fn new() -> Self {
+        Self {
+            table: UnsafeCell::new(GlobalDescriptorTable::new()),
+        }
+    }
+}
+
+impl Deref for GlobalDescTable {
+    type Target = GlobalDescriptorTable;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.table.get() }
+    }
+}
+impl DerefMut for GlobalDescTable {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut *self.table.get_mut()
+    }
+}
+
+unsafe impl Sync for GlobalDescTable {}
+
 pub fn init() {
-    let mut gdt = GDT.lock();
+    let gdt = unsafe { &mut *addr_of_mut!(GDT) };
 
     let kernel_cs = gdt.append(Descriptor::kernel_code_segment());
     let kernel_ss = gdt.append(Descriptor::kernel_data_segment());
@@ -42,39 +74,23 @@ pub fn init() {
 }
 
 pub fn get_kernel_cs() -> SegmentSelector {
-    let cs = unsafe { KERNEL_CS.get_unchecked() };
-
-    #[cfg(feature = "init_check")]
-    let cs = KERNEL_CS.get().expect("Uninitialized");
-
-    *cs
+    debug_assert!(KERNEL_CS.is_completed());
+    unsafe { *KERNEL_CS.get_unchecked() }
 }
 
 pub fn get_kernel_ss() -> SegmentSelector {
-    let ss = unsafe { KERNEL_SS.get_unchecked() };
-
-    #[cfg(feature = "init_check")]
-    let ss = KERNEL_SS.get().expect("Uninitialized");
-
-    *ss
+    debug_assert!(KERNEL_SS.is_completed());
+    unsafe { *KERNEL_SS.get_unchecked() }
 }
 
 pub fn get_user_cs() -> SegmentSelector {
-    let cs = unsafe { USER_CS.get_unchecked() };
-
-    #[cfg(feature = "init_check")]
-    let cs = USER_CS.get().expect("Uninitialized");
-
-    *cs
+    debug_assert!(USER_CS.is_completed());
+    unsafe { *USER_CS.get_unchecked() }
 }
 
 pub fn get_user_ss() -> SegmentSelector {
-    let ss = unsafe { USER_SS.get_unchecked() };
-
-    #[cfg(feature = "init_check")]
-    let ss = USER_SS.get().expect("Uninitialized");
-
-    *ss
+    debug_assert!(USER_SS.is_completed());
+    unsafe { *USER_SS.get_unchecked() }
 }
 
 pub unsafe fn call_app(argc: usize, argv: *const *const u8, rip: u64, rsp: u64) {
