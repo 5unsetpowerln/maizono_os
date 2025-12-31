@@ -1,12 +1,13 @@
 use core::cmp::Ordering;
 
 use alloc::collections::binary_heap::BinaryHeap;
+use core::arch::{asm, naked_asm};
 use log::debug;
 use spin::Once;
 use x86_64::structures::idt::InterruptStackFrame;
 
 use crate::mutex::Mutex;
-use crate::task::TASK_MANAGER;
+use crate::task::{TASK_MANAGER, TaskContext};
 use crate::{
     acpi,
     interrupts::{self, LAPIC},
@@ -148,7 +149,8 @@ pub fn init_lagic_timer() {
     debug!("Initialized lapic timer.")
 }
 
-pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
+// pub extern "x86-interrupt" fn interrupt_handler(interrupt_stack_frame: InterruptStackFrame) {
+fn on_interrupt(ctx: &TaskContext) {
     task::TASK_MANAGER
         .wait()
         .lock()
@@ -161,5 +163,80 @@ pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFram
 
     if is_preemptive_multitask_timeout {
         TASK_MANAGER.wait().switch_task(false);
+    }
+}
+
+#[naked]
+pub extern "x86-interrupt" fn interrupt_handler(interrupt_stack_frame: InterruptStackFrame) {
+    // rsp -> | TaskContext |
+    //        |             |
+    // rbp -> | rbp         |
+    //        | rip         | StackFrame
+    //        | cs          |
+    //        | rflags      |
+    //        | rsp         |
+    //        | ss          |
+    unsafe {
+        naked_asm!(
+            "push rbp",
+            "mov rbp, rsp",
+            "sub rsp, 512",
+            "fxsave [rsp]",
+            // general registers
+            "push r15",
+            "push r14",
+            "push r13",
+            "push r12",
+            "push r11",
+            "push r10",
+            "push r9",
+            "push r8",
+            "push qword ptr [rbp]", // rbp
+            "push qword ptr [rbp+0x20]", // rsp
+            "push rsi",
+            "push rdi",
+            "push rdx",
+            "push rcx",
+            "push rbx",
+            "push rax",
+            // segment
+            "mov ax, fs",
+            "mov bx, gs",
+            "mov rcx, cr3",
+            "push rbx",                // gs
+            "push rax",                // fs
+            "push qword ptr [rbp + 0x28]", // ss
+            "push qword ptr [rbp + 0x10]", // cs
+            "push rbp",                // reserved1
+            "push qword ptr [rbp + 0x18]", // 10
+            "push qword ptr [rbp + 0x08]", // 08
+            "push rcx", // 00
+            // on_interrupt
+            "mov rdi, rsp",
+            "lea rax, [rip + {on_interrupt}]",
+            "call rax",
+            // 状態の復元
+            "add rsp, 8 * 8", // cr3 ~ gsを無視
+            "pop rax",
+            "pop rbx",
+            "pop rcx",
+            "pop rdx",
+            "pop rdi",
+            "pop rsi",
+            "add rsp, 0x10", // rsp, rbpを無視
+            "pop r8",
+            "pop r9",
+            "pop r10",
+            "pop r11",
+            "pop r12",
+            "pop r13",
+            "pop r14",
+            "pop r15",
+            "fxrstor [rsp]",
+            "mov rsp, rbp",
+            "pop rbp",
+            "iretq",
+            on_interrupt = sym on_interrupt
+        );
     }
 }

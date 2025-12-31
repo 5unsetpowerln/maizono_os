@@ -1,29 +1,33 @@
 use core::{
+    arch::asm,
     arch::naked_asm,
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
-    ptr::addr_of_mut,
+    ptr::{addr_of, addr_of_mut},
 };
 
 use spin::Once;
 use x86_64::{
     PrivilegeLevel::Ring0,
+    VirtAddr,
     registers::segmentation::{CS, DS, ES, FS, GS, SS, Segment},
     structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
 };
 
-// static mut GDT: SyncUnsafeCell<GlobalDescriptorTable> =
-// SyncUnsafeCell::new(GlobalDescriptorTable::new());
-// static GDT: Mutex<GlobalDescriptorTable> = Mutex::new(GlobalDescriptorTable::new());
+use crate::frame_manager;
+
 static mut GDT: GlobalDescTable = GlobalDescTable::new();
+static mut TSS: TaskStateSegment = TaskStateSegment::new();
 static KERNEL_CS: Once<SegmentSelector> = Once::new();
 static KERNEL_SS: Once<SegmentSelector> = Once::new();
 static USER_CS: Once<SegmentSelector> = Once::new();
 static USER_SS: Once<SegmentSelector> = Once::new();
 
+// Global Descriptor Table
 struct GlobalDescTable {
     table: UnsafeCell<x86_64::structures::gdt::GlobalDescriptorTable>,
 }
+
 impl GlobalDescTable {
     pub const fn new() -> Self {
         Self {
@@ -47,6 +51,39 @@ impl DerefMut for GlobalDescTable {
 
 unsafe impl Sync for GlobalDescTable {}
 
+// TSS
+struct TaskStateSegment {
+    tss: UnsafeCell<x86_64::structures::tss::TaskStateSegment>,
+}
+
+unsafe impl Sync for TaskStateSegment {}
+
+impl TaskStateSegment {
+    const fn new() -> Self {
+        Self {
+            tss: UnsafeCell::new(x86_64::structures::tss::TaskStateSegment::new()),
+        }
+    }
+
+    fn get_ptr(&self) -> *const x86_64::structures::tss::TaskStateSegment {
+        self.tss.get()
+    }
+}
+
+impl Deref for TaskStateSegment {
+    type Target = x86_64::structures::tss::TaskStateSegment;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.tss.get() }
+    }
+}
+
+impl DerefMut for TaskStateSegment {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.tss.get_mut()
+    }
+}
+
 pub fn init() {
     let gdt = unsafe { &mut *addr_of_mut!(GDT) };
 
@@ -54,6 +91,17 @@ pub fn init() {
     let kernel_ss = gdt.append(Descriptor::kernel_data_segment());
     let user_cs = gdt.append(Descriptor::user_code_segment());
     let user_ss = gdt.append(Descriptor::user_data_segment());
+
+    // init TSS
+    let tss_tr = unsafe {
+        let tss = &mut *addr_of_mut!(TSS);
+        let stack = frame_manager::alloc(8)
+            .expect("Failed to allocate stack for TSS")
+            .to_addr();
+        let rsp = stack.as_u64() + 0x1000 * 8;
+        tss.privilege_stack_table[0] = VirtAddr::new(rsp);
+        gdt.append(Descriptor::tss_segment_unchecked(tss.get_ptr()))
+    };
 
     unsafe {
         gdt.load_unsafe();
@@ -65,12 +113,20 @@ pub fn init() {
 
         CS::set_reg(kernel_cs);
         SS::set_reg(kernel_ss);
+
+        load_tr(tss_tr);
     }
 
     KERNEL_CS.call_once(|| kernel_cs);
     KERNEL_SS.call_once(|| kernel_ss);
     USER_CS.call_once(|| user_cs);
     USER_SS.call_once(|| user_ss);
+}
+
+unsafe fn load_tr(tr: SegmentSelector) {
+    unsafe {
+        asm!("ltr di", in("di") tr.0);
+    }
 }
 
 pub fn get_kernel_cs() -> SegmentSelector {

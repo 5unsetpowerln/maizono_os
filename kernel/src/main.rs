@@ -164,9 +164,9 @@ fn main(boot_info: &BootInfo) -> ! {
 
     cpu::init();
 
-    gdt::init();
-
     frame_manager::init(&boot_info.memory_map);
+
+    gdt::init();
 
     allocator::init();
 

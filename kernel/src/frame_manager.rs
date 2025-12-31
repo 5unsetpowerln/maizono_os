@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use crate::mutex::Mutex;
 use thiserror_no_std::Error;
 use uefi::mem::memory_map::{MemoryMap, MemoryMapOwned};
-use x86_64::PhysAddr;
+use x86_64::{PhysAddr, VirtAddr};
 
 use crate::memory_map::{UEFI_PAGE_SIZE, is_available};
 
@@ -27,8 +27,8 @@ impl FrameID {
         self.id
     }
 
-    pub fn to_addr(&self) -> PhysAddr {
-        PhysAddr::new(self.id as u64 * BYTES_PER_FRAME as u64)
+    pub fn to_addr(&self) -> VirtAddr {
+        VirtAddr::new(self.id as u64 * BYTES_PER_FRAME as u64)
     }
 
     pub fn from_addr(addr: PhysAddr) -> Self {

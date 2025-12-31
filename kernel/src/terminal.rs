@@ -60,7 +60,7 @@ impl Terminal {
         }
     }
 
-    pub fn input_key(&mut self, key: DecodedKey) {
+    pub fn input_key(&mut self, key: DecodedKey) -> Option<(&'static DirectoryEntry, Vec<String>)> {
         match key {
             DecodedKey::Unicode(character) => match character.as_ascii().unwrap() {
                 ascii::Char::Backspace => {
@@ -69,21 +69,26 @@ impl Terminal {
                         self.line_buffer.remove(self.cursor);
                         self.display_line_buffer.push(character);
                     }
+                    None
                 }
                 ascii::Char::LineFeed => {
                     kprintln!("");
-                    self.execute_line();
+                    if let Some((dir_entry, args)) = self.execute_line() {
+                        return Some((dir_entry, args));
+                    }
 
                     self.history.pop_back();
                     self.history.push_front(self.line_buffer.clone());
                     self.history_idx = -1;
 
                     self.reset_input();
+                    None
                 }
                 _ => {
                     self.line_buffer.insert(self.cursor, character);
                     self.cursor += 1;
                     self.display_line_buffer.push(character);
+                    None
                 }
             },
             DecodedKey::RawKey(key) => match key {
@@ -92,20 +97,24 @@ impl Terminal {
                         self.cursor -= 1;
                         console::move_cursor_left();
                     }
+                    None
                 }
                 KeyCode::ArrowRight => {
                     if self.cursor < self.line_buffer.chars().count() {
                         self.cursor += 1;
                         console::move_cursor_right();
                     }
+                    None
                 }
                 KeyCode::ArrowUp => {
                     self.history_up_or_down(1);
+                    None
                 }
                 KeyCode::ArrowDown => {
                     self.history_up_or_down(-1);
+                    None
                 }
-                _ => {}
+                _ => None,
             },
         }
     }
@@ -162,14 +171,14 @@ impl Terminal {
     }
 
     // コマンドが認識されたら true, コマンドが認識されなかったら (例えば空白だけ) false
-    pub fn execute_line(&mut self) -> bool {
+    pub fn execute_line(&mut self) -> Option<(&'static DirectoryEntry, Vec<String>)> {
         let parts = self.line_buffer.as_str().split(' ').collect::<Vec<&str>>();
 
         let command = parts.iter().find(|&s| !s.is_empty());
 
         if command.is_none() {
             kprintln!("");
-            return false;
+            return None;
         }
 
         let command = *command.unwrap();
@@ -186,6 +195,7 @@ impl Terminal {
 
                 kprintln!("{args}");
                 kprintln!("");
+                None
             }
             "ls" => {
                 for entry in fat::get_root_dir_entries() {
@@ -199,6 +209,7 @@ impl Terminal {
                 }
 
                 kprintln!("");
+                None
             }
             "cat" => {
                 for _ in 0..1 {
@@ -228,9 +239,11 @@ impl Terminal {
 
                     kprintln!("{}", string);
                 }
+                None
             }
             "clear" => {
                 console::clear();
+                None
             }
             _ => {
                 if let Some(file_entry) =
@@ -245,26 +258,25 @@ impl Terminal {
                         .unwrap_or("")
                         .trim()
                         .split(' ')
-                        .collect::<Vec<&str>>();
+                        .map(|s| s.to_string())
+                        .collect::<Vec<String>>();
 
                     args.retain(|s| !(*s).is_empty());
-
-                    execute_file(file_entry, &args);
+                    Some((file_entry, args))
                 } else {
                     kprintln!("No such command: {command}");
                     kprintln!("");
+                    None
                 }
             }
         }
-
-        true
     }
 }
 
 const STACK_FRAME_ADDR: VirtAddr = VirtAddr::new(0xffff_ffff_ffff_e000);
 const ARGS_FRAME_ADDR: VirtAddr = VirtAddr::new(0xffff_ffff_ffff_f000);
 
-fn execute_file(file: &DirectoryEntry, args: &[&str]) {
+fn execute_file(file: &DirectoryEntry, args: &[String]) {
     let mut buffer = Vec::new();
 
     file.read_file_to_vec(&mut buffer);
@@ -302,11 +314,11 @@ fn execute_file(file: &DirectoryEntry, args: &[&str]) {
         return;
     }
 
-    let func: fn(&[&str]) = unsafe { core::mem::transmute(buffer.as_ptr()) };
+    let func: fn(&[String]) = unsafe { core::mem::transmute(buffer.as_ptr()) };
     func(args);
 }
 
-fn make_argv(src: &[&str], dst: VirtAddr) {
+fn make_argv(src: &[String], dst: VirtAddr) {
     let buf_offset = 8 * src.len();
 
     let dst = dst.as_u64() as *mut u8;
@@ -315,7 +327,7 @@ fn make_argv(src: &[&str], dst: VirtAddr) {
 
     for (i, string) in src.iter().enumerate() {
         unsafe {
-            let string_src = *string as *const str as *const u8;
+            let string_src = string.as_str() as *const str as *const u8;
             let string_dst = dst.add(buf_offset + written);
 
             copy_nonoverlapping(string_src, string_dst, string.len());
@@ -341,14 +353,20 @@ pub fn terminal_task(task_id: u64, _data: u64) {
     TERMINAL.wait().lock().display_on_console();
 
     loop {
-        if let Some(message::Message::KeyInput(decoded_key)) = TASK_MANAGER
-            .wait()
-            .lock()
-            .receive_message_from_task(task_id)
-            .unwrap()
-        {
+        let msg = {
+            let mut lock = TASK_MANAGER.wait().lock();
+            lock.receive_message_from_task(task_id).unwrap()
+        };
+
+        if let Some(message::Message::KeyInput(decoded_key)) = msg {
             let mut terminal = TERMINAL.wait().lock();
-            terminal.input_key(decoded_key);
+
+            if let Some((file, args)) = terminal.input_key(decoded_key) {
+                drop(terminal);
+                execute_file(file, &args);
+                unreachable!();
+            }
+
             terminal.display_on_console();
         } else {
             TASK_MANAGER
@@ -437,9 +455,10 @@ fn setup_page_table(
 
         if let PageTableLevel::One = level {
             if !entry.flags().contains(PageTableFlags::PRESENT) {
-                let phys_addr = frame_manager::alloc(1)
+                let virt_addr = frame_manager::alloc(1)
                     .expect("Failed to allocate a page frame.")
                     .to_addr();
+                let phys_addr = PhysAddr::new(virt_addr.as_u64());
 
                 let ptr = phys_addr.as_u64() as *mut u8;
 
@@ -522,17 +541,18 @@ unsafe fn set_new_page_table_if_not_present(entry: &mut PageTableEntry) -> *mut 
 }
 
 unsafe fn new_page_table() -> PhysAddr {
-    let addr = frame_manager::alloc(1)
+    let virt_addr = frame_manager::alloc(1)
         .expect("Failed to allocate a new page frame")
         .to_addr();
+    let phys_addr = PhysAddr::new(virt_addr.as_u64());
 
-    let ptr = addr.as_u64() as *mut u8;
+    let ptr = phys_addr.as_u64() as *mut u8;
 
     unsafe {
         core::ptr::write_bytes(ptr, 0, frame_manager::BYTES_PER_FRAME);
     }
 
-    addr
+    phys_addr
 }
 
 fn clean_page_tables(addr: VirtAddr) -> Result<()> {
