@@ -1,4 +1,5 @@
 use core::arch::naked_asm;
+use core::ptr::copy_nonoverlapping;
 
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -9,7 +10,9 @@ use spin::Once;
 
 use crate::gdt::{get_kernel_cs, get_kernel_ss};
 use crate::message::Message;
-use crate::mutex::Mutex;
+use crate::mutex::{Mutex, MutexGuard};
+use crate::serial::emergency_print;
+use crate::serial_emergency_println;
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
 use crate::util::read_cr3_raw;
 
@@ -38,7 +41,7 @@ pub fn init() {
 }
 
 #[naked]
-pub unsafe extern "C" fn restore_context(ctx: &TaskContext) {
+pub unsafe extern "C" fn restore_context(ctx: *const TaskContext) {
     unsafe {
         naked_asm!(
             "push qword ptr [rdi + 0x28]", // SS
@@ -149,7 +152,7 @@ pub unsafe extern "C" fn switch_context(
 }
 
 #[repr(C, packed)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct TaskContextInner {
     // offset 0x00
     pub cr3: u64,
@@ -183,7 +186,7 @@ pub struct TaskContextInner {
     pub fxsave_area: [u8; 512],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(align(16))]
 pub struct TaskContext(pub TaskContextInner);
 
@@ -305,9 +308,9 @@ pub const DEFAULT_LEVEL: u8 = 1;
 #[derive(Debug)]
 pub struct TaskManager {
     latest_id: u64 = 0,
-    tasks: SlotMap<slotmap::DefaultKey, Task>,
-    running_queues: [VecDeque<slotmap::DefaultKey>; MAX_LEVEL as usize + 1],
-    current_level: u8,
+    pub tasks: SlotMap<slotmap::DefaultKey, Task>,
+    pub running_queues: [VecDeque<slotmap::DefaultKey>; MAX_LEVEL as usize + 1],
+    pub current_level: u8,
     /// is_level_changed というか、current_level よりも優先度の高いタスクが存在しているかどうかを表すフラグ
     is_level_changed: bool,
 }
@@ -339,7 +342,7 @@ impl TaskManager {
     }
 
     pub fn get_key_from_id(&self, id: u64) -> Result<DefaultKey> {
-        if let Some((key, _)) = self.tasks.iter().find(|(_, t)| t.id == 1) {
+        if let Some((key, _)) = self.tasks.iter().find(|(_, t)| t.id == id) {
             return Ok(key);
         }
 
@@ -400,7 +403,7 @@ impl TaskManager {
     }
 
     fn change_level_in_running_queue(&mut self, key: DefaultKey, level: Option<u8>) -> Result<()> {
-        if let None = level {
+        if level.is_none() {
             return Ok(());
         }
 
@@ -457,6 +460,7 @@ impl TaskManager {
 
     pub fn send_message_to_task(&mut self, id: u64, message: &Message) -> Result<()> {
         if let Some((key, task)) = self.tasks.iter_mut().find(|(_, t)| t.id == id) {
+            serial_emergency_println!("received a message to task {}", task.id);
             task.messages.push_back(*message);
             self.wakeup_by_key(key, None)?;
         } else {
@@ -480,66 +484,103 @@ impl TaskManager {
 }
 
 pub trait TaskManagerTrait {
-    fn switch_task(&self, current_sleep: bool);
+    fn switch_task(&self, current_ctx: &TaskContext);
     fn sleep_by_key(&self, key: DefaultKey) -> Result<()>;
     fn sleep(&self, id: u64) -> Result<()>;
 }
 
-impl TaskManagerTrait for Mutex<TaskManager> {
-    fn switch_task(&self, current_sleep: bool) {
-        x86_64::instructions::interrupts::disable();
-        let mut self_ = self.lock();
+fn rotate_current_run_queue(
+    self_: &mut MutexGuard<'_, TaskManager>,
+    current_sleep: bool,
+) -> DefaultKey {
+    debug_assert!(self_.running_queues.len() > self_.current_level as usize);
+    let current_level = self_.current_level;
+    let level_queue = unsafe {
+        self_
+            .running_queues
+            .get_unchecked_mut(current_level as usize)
+    };
+    let current_task = *level_queue
+        .front()
+        .expect("the current level queue is empty");
+    level_queue.pop_front();
+    if !current_sleep {
+        level_queue.push_back(current_task);
+    }
+    if level_queue.is_empty() {
+        self_.is_level_changed = false;
 
-        let current_level = self_.current_level;
-        let current_task_key = self_.running_queues[current_level as usize]
-            .pop_front()
-            .unwrap();
-
-        if !current_sleep {
-            self_.running_queues[current_level as usize].push_back(current_task_key);
-        }
-
-        if self_.running_queues[current_level as usize].is_empty() {
-            self_.is_level_changed = true;
-        }
-
-        if self_.is_level_changed {
-            self_.is_level_changed = false;
-
-            for level in (0..=MAX_LEVEL).rev() {
-                if !self_.running_queues[level as usize].is_empty() {
-                    self_.current_level = level;
-                    break;
-                }
+        for level in (0..=MAX_LEVEL).rev() {
+            debug_assert!(self_.running_queues.len() > level as usize);
+            let level_queue = unsafe { self_.running_queues.get_unchecked(level as usize) };
+            if !level_queue.is_empty() {
+                self_.current_level = level;
+                break;
             }
         }
+    }
 
-        let current_level = self_.current_level;
+    current_task
+}
 
-        // 上のfor文内でrunning_queues[current_level]が空ではないことは確認済み
-        let next_task_key = self_.running_queues[current_level as usize]
-            .front()
-            .unwrap();
+fn get_current_task_key(task_manager: &MutexGuard<'_, TaskManager>) -> DefaultKey {
+    let current_level = task_manager.current_level;
+    debug_assert!(
+        task_manager
+            .running_queues
+            .get(current_level as usize)
+            .is_some()
+    );
+    let level_queue = unsafe {
+        task_manager
+            .running_queues
+            .get_unchecked(current_level as usize)
+    };
+    debug_assert!(level_queue.front().is_some());
+    let current_task_key = level_queue.front().unwrap();
+    *current_task_key
+}
 
-        // running_queuesに入っているkeyはすべてtasksに紐づいていることが前提になっている
-        let current_context = self_.tasks.get(current_task_key).unwrap().get_context()
-            as *const TaskContext as *mut TaskContext;
-        let next_context =
-            self_.tasks.get(*next_task_key).unwrap().get_context() as *const TaskContext;
+impl TaskManagerTrait for Mutex<TaskManager> {
+    fn switch_task(&self, current_ctx: &TaskContext) {
+        let mut _self = self.lock();
 
-        core::mem::drop(self_);
-        x86_64::instructions::interrupts::enable();
+        serial_emergency_println!("{:?}", _self.running_queues);
 
+        // タスクマネージャ側のカレントタスクコンテキストを更新する
         unsafe {
-            switch_context(next_context, current_context);
+            let current_task_key = get_current_task_key(&_self);
+            let current_ctx_dst = _self
+                .tasks
+                .get_unchecked_mut(current_task_key)
+                .get_context() as *const TaskContext
+                as *mut TaskContext;
+
+            copy_nonoverlapping(current_ctx as *const TaskContext, current_ctx_dst, 1);
+        }
+
+        // キューの先頭のタスク(現在実行中のタスク)を末尾に移動する
+        let old_current_task_key = rotate_current_run_queue(&mut _self, false);
+        let new_current_task_key = get_current_task_key(&_self);
+
+        if old_current_task_key != new_current_task_key {
+            // キューのタスクを移動した結果、先頭のタスク(現在実行中のタスク)が変化した場合
+            // (変化しない場合とは、例えばキューにタスクが1つしかない場合など)
+            unsafe {
+                // 新しいタスクのコンテキストを復元する
+                let new_context =
+                    &_self.tasks.get_unchecked(new_current_task_key).context as *const TaskContext;
+                // ロックを解除する
+                drop(_self);
+                restore_context(new_context);
+            }
         }
     }
 
     fn sleep_by_key(&self, key: DefaultKey) -> Result<()> {
-        x86_64::instructions::interrupts::disable();
-        let mut self_ = self.lock();
+        let mut _self = self.lock();
 
-        let task = if let Some(t) = self_.tasks.get_mut(key) {
+        let task = if let Some(t) = _self.tasks.get_mut(key) {
             t
         } else {
             return Err(Error::TaskNotFound);
@@ -551,33 +592,34 @@ impl TaskManagerTrait for Mutex<TaskManager> {
 
         task.set_is_running(false);
 
-        match self_.running_queues[self_.current_level as usize].front() {
-            Some(k) => {
-                if *k == key {
-                    core::mem::drop(self_);
-                    x86_64::instructions::interrupts::disable();
-                    self.switch_task(true);
-                    return Ok(());
-                }
-            }
+        debug_assert!(!_self.running_queues[_self.current_level as usize].is_empty());
+        if *_self.running_queues[_self.current_level as usize]
+            .front()
+            .unwrap()
+            == key
+        {
+            let old_task_key = rotate_current_run_queue(&mut _self, true);
+            let new_task_key = get_current_task_key(&_self);
+            unsafe {
+                let old_context =
+                    &mut _self.tasks.get_unchecked_mut(old_task_key).context as *mut TaskContext;
+                let new_context =
+                    &_self.tasks.get_unchecked(new_task_key).context as *const TaskContext;
 
-            None => {
-                core::mem::drop(self_);
-                x86_64::instructions::interrupts::enable();
-                return Err(Error::TaskNotFound);
+                drop(_self);
+
+                switch_context(new_context, old_context);
+                unreachable!();
             }
         }
 
-        let current_level = self_.current_level;
-        self_.running_queues[current_level as usize].retain(|k| *k == key);
-        core::mem::drop(self_);
-        x86_64::instructions::interrupts::enable();
+        let current_level = _self.current_level;
+        _self.running_queues[current_level as usize].retain(|k| *k == key);
 
         Ok(())
     }
 
     fn sleep(&self, id: u64) -> Result<()> {
-        x86_64::instructions::interrupts::disable();
         let self_ = self.lock();
 
         let key = if let Some((k, _)) = self_.tasks.iter().find(|(_, t)| t.id == id) {
@@ -587,7 +629,6 @@ impl TaskManagerTrait for Mutex<TaskManager> {
         };
 
         core::mem::drop(self_);
-        x86_64::instructions::interrupts::enable();
 
         self.sleep_by_key(key)?;
 

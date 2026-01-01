@@ -162,7 +162,7 @@ fn on_interrupt(ctx: &TaskContext) {
     interrupts::notify_end_of_interrupt();
 
     if is_preemptive_multitask_timeout {
-        TASK_MANAGER.wait().switch_task(false);
+        TASK_MANAGER.wait().switch_task(ctx);
     }
 }
 

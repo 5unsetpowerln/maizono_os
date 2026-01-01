@@ -210,6 +210,7 @@ fn main(boot_info: &BootInfo) -> ! {
         task_manager
             .wakeup(terminal_task_id, None)
             .expect("Failed to wake up a task.");
+        info!("terminal task: {}", terminal_task_id);
 
         let draw_layer_task_id = task_manager
             .new_task()
@@ -218,11 +219,13 @@ fn main(boot_info: &BootInfo) -> ! {
         task_manager
             .wakeup(draw_layer_task_id, None)
             .expect("Failed to wake up a task.");
+        info!("draw layer task: {}", draw_layer_task_id);
 
         let idle_task_id = task_manager.new_task().init_context(task_idle, 54).get_id();
         task_manager
             .wakeup(idle_task_id, None)
             .expect("Failed to wake up a task");
+        info!("idle task id: {}", idle_task_id);
 
         TASK_IDS.call_once(|| TaskIDs {
             terminal_task_id,
@@ -245,6 +248,7 @@ fn main(boot_info: &BootInfo) -> ! {
         if let Some(message) = message_opt {
             match message {
                 message::Message::PS2KeyboardInterrupt(result) => {
+                    debug!("keyboard");
                     if let Ok(scancode) = result {
                         if let Some(key_code) = ps2::read_key_event(scancode) {
                             TASK_MANAGER
@@ -260,7 +264,9 @@ fn main(boot_info: &BootInfo) -> ! {
                     } else {
                     }
                 }
-                message::Message::LocalAPICTimerInterrupt => {}
+                message::Message::LocalAPICTimerInterrupt => {
+                    debug!("main task: received a timer interrupt message");
+                }
                 message::Message::TimerTimeout(timer) => {
                     info!("timeout: ({:?}, {})", timer.kind, timer.timeout);
                 }
