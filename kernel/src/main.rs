@@ -264,9 +264,7 @@ fn main(boot_info: &BootInfo) -> ! {
                     } else {
                     }
                 }
-                message::Message::LocalAPICTimerInterrupt => {
-                    debug!("main task: received a timer interrupt message");
-                }
+                message::Message::LocalAPICTimerInterrupt => {}
                 message::Message::TimerTimeout(timer) => {
                     info!("timeout: ({:?}, {})", timer.kind, timer.timeout);
                 }

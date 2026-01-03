@@ -429,7 +429,7 @@ impl TaskManager {
             Some(k) => {
                 if *k != key {
                     // change level of other task
-                    self.running_queues[task.level as usize].retain(|x| *x == key);
+                    self.running_queues[task.level as usize].retain(|x| *x != key);
                     self.running_queues[level as usize].push_back(key);
                     task.set_level(level);
 
@@ -460,7 +460,6 @@ impl TaskManager {
 
     pub fn send_message_to_task(&mut self, id: u64, message: &Message) -> Result<()> {
         if let Some((key, task)) = self.tasks.iter_mut().find(|(_, t)| t.id == id) {
-            serial_emergency_println!("received a message to task {}", task.id);
             task.messages.push_back(*message);
             self.wakeup_by_key(key, None)?;
         } else {
@@ -511,13 +510,31 @@ fn rotate_current_run_queue(
         self_.is_level_changed = false;
 
         for level in (0..=MAX_LEVEL).rev() {
-            debug_assert!(self_.running_queues.len() > level as usize);
             let level_queue = unsafe { self_.running_queues.get_unchecked(level as usize) };
             if !level_queue.is_empty() {
                 self_.current_level = level;
                 break;
             }
         }
+    }
+
+    if self_.is_level_changed {
+        self_.is_level_changed = false;
+
+        for level in (0..=MAX_LEVEL).rev() {
+            let level_queue = unsafe { self_.running_queues.get_unchecked(level as usize) };
+            if !level_queue.is_empty() {
+                self_.current_level = level;
+                break;
+            }
+        }
+
+        // for (int lv = kMaxLevel; lv >= 0; --lv) {
+        //         if (!running_[lv].empty()) {
+        //                 current_level_ = lv;
+        //                 break;
+        //         }
+        // }
     }
 
     current_task
@@ -537,15 +554,12 @@ fn get_current_task_key(task_manager: &MutexGuard<'_, TaskManager>) -> DefaultKe
             .get_unchecked(current_level as usize)
     };
     debug_assert!(level_queue.front().is_some());
-    let current_task_key = level_queue.front().unwrap();
-    *current_task_key
+    *level_queue.front().unwrap()
 }
 
 impl TaskManagerTrait for Mutex<TaskManager> {
     fn switch_task(&self, current_ctx: &TaskContext) {
         let mut _self = self.lock();
-
-        serial_emergency_println!("{:?}", _self.running_queues);
 
         // タスクマネージャ側のカレントタスクコンテキストを更新する
         unsafe {
@@ -609,12 +623,12 @@ impl TaskManagerTrait for Mutex<TaskManager> {
                 drop(_self);
 
                 switch_context(new_context, old_context);
-                unreachable!();
+                return Ok(());
             }
         }
 
         let current_level = _self.current_level;
-        _self.running_queues[current_level as usize].retain(|k| *k == key);
+        _self.running_queues[current_level as usize].retain(|k| *k != key);
 
         Ok(())
     }

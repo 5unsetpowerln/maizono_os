@@ -168,26 +168,11 @@ impl Keyboard {
 pub extern "x86-interrupt" fn interrupt_handler(_stack_frame: InterruptStackFrame) {
     let result = unsafe { ps2::KEYBOARD_CONTROLLER.wait().lock().read_data() };
 
-    serial_emergency_println!("keyboard interrupt");
     task::TASK_MANAGER
         .wait()
         .lock()
         .send_message_to_task(1, &message::Message::PS2KeyboardInterrupt(result))
         .expect("Failed to send a message to main task.");
-
-    unsafe {
-        let lock = task::TASK_MANAGER.wait().lock();
-        let current_level = lock.current_level;
-        for key in lock.running_queues[current_level as usize].iter() {
-            let task = lock.tasks.get_unchecked(*key);
-            debug!("{}", task.get_id());
-        }
-        // for task in lock.running_queues[current_level as usize].iter() {}
-        // debug!(
-        //     "[{}]: {:?}",
-        //     current_level, lock.running_queues[current_level as usize]
-        // );
-    }
 
     interrupts::notify_end_of_interrupt();
 }
