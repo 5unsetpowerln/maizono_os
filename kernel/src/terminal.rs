@@ -26,7 +26,6 @@ use crate::kprintln;
 use crate::logger;
 use crate::message;
 use crate::mutex::Mutex;
-use crate::serial_println;
 use crate::task::TASK_MANAGER;
 use crate::task::TaskManagerTrait;
 use crate::types::VirtAddr;
@@ -281,7 +280,6 @@ fn execute_file(file: &DirectoryEntry, args: &[String]) {
 
     file.read_file_to_vec(&mut buffer);
 
-    serial_println!("{:?}", &buffer[1..5]);
     if buffer[0..4] == [0x7f, 0x45, 0x4c, 0x46] {
         let elf = goblin::elf::Elf::parse(&buffer).expect("Failed to parse the elf.");
 
@@ -505,8 +503,6 @@ fn setup_page_table(
             break;
         }
 
-        serial_print!("{:?}: 0x{:x} ~ ", level, addr.as_u64());
-
         addr.set_page_table_index(level, PageTableIndex::new(u16::from(index) + 1));
 
         let mut lv = level;
@@ -515,8 +511,6 @@ fn setup_page_table(
 
             lv = lower_level;
         }
-
-        serial_println!("0x{:x}: 0x{:x}", addr.as_u64(), paddr.as_u64());
     }
 
     Ok(None)

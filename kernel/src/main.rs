@@ -248,7 +248,6 @@ fn main(boot_info: &BootInfo) -> ! {
         if let Some(message) = message_opt {
             match message {
                 message::Message::PS2KeyboardInterrupt(result) => {
-                    debug!("keyboard");
                     if let Ok(scancode) = result {
                         if let Some(key_code) = ps2::read_key_event(scancode) {
                             TASK_MANAGER

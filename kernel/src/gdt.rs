@@ -14,7 +14,7 @@ use x86_64::{
     structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector},
 };
 
-use crate::frame_manager;
+use crate::{frame_manager, serial_emergency_println};
 
 static mut GDT: GlobalDescTable = GlobalDescTable::new();
 static mut TSS: TaskStateSegment = TaskStateSegment::new();
@@ -98,7 +98,9 @@ pub fn init() {
         let stack = frame_manager::alloc(8)
             .expect("Failed to allocate stack for TSS")
             .to_addr();
-        let rsp = stack.as_u64() + 0x1000 * 8;
+        // 割り込みハンドラでスタックのアラインメントを0x10にするために-8しておく
+        let rsp = stack.as_u64() + 0x1000 * 8 - 8;
+        serial_emergency_println!("TSS.RSP0: 0x{:x}", rsp);
         tss.privilege_stack_table[0] = VirtAddr::new(rsp);
         gdt.append(Descriptor::tss_segment_unchecked(tss.get_ptr()))
     };
@@ -173,6 +175,7 @@ unsafe extern "C" fn call_app_inner(
         naked_asm!(
             "push rbp",
             "mov rbp, rsp",
+            "mov r10, [rbp + 16]",
             "push rcx", // ss
             "push r10", // rsp
             "push r8",  // rflags

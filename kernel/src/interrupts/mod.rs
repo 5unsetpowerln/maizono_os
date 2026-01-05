@@ -8,12 +8,14 @@ use crate::x64::{IA32_APIC_BASE_MSR, write_msr};
 use crate::{acpi, device::ps2};
 use ::acpi::madt::InterruptSourceOverrideEntry;
 use apic::{IoApic, LocalApic};
+use core::arch::{asm, naked_asm};
 use log::{error, info};
+use proc_macro_lib::align16_fn;
 use spin::Lazy;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
-use crate::{message, timer};
+use crate::{message, serial_emergency_println, timer};
 
 pub static LAPIC: Mutex<LocalApic> = Mutex::new(LocalApic::new(0));
 
@@ -53,11 +55,46 @@ impl InterruptVector {
 
 static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
     let mut idt = InterruptDescriptorTable::new();
-    idt.breakpoint.set_handler_fn(breakpoint_handler);
-    idt.double_fault.set_handler_fn(double_fault_handler);
-    idt.page_fault.set_handler_fn(page_fault_handler);
+    idt.divide_error
+        .set_handler_fn(divide_by_zero_exception_interrupt_handler);
+    idt.debug.set_handler_fn(debug_exception_interrupt_handler);
+    idt.non_maskable_interrupt
+        .set_handler_fn(nmi_interrupt_handler);
+    idt.breakpoint
+        .set_handler_fn(breakpoint_exception_interrupt_handler);
+    idt.overflow
+        .set_handler_fn(overflow_exception_interrupt_handler);
+    idt.bound_range_exceeded
+        .set_handler_fn(bound_range_exceeded_exception_interrupt_handler);
+    idt.invalid_opcode
+        .set_handler_fn(invalid_opecode_exception_interrupt_handler);
+    idt.device_not_available
+        .set_handler_fn(device_not_available_exception_interrupt_handler);
+    idt.double_fault
+        .set_handler_fn(double_fault_exception_interrupt_handler);
+    // coprocessor segment overrunはx86_64クレートがサポートしていない
+    idt.invalid_tss
+        .set_handler_fn(invalid_tss_exception_interrupt_handler);
+    idt.segment_not_present
+        .set_handler_fn(segment_not_present_exception_interrupt_handler);
+    idt.stack_segment_fault
+        .set_handler_fn(stack_fault_exception_interrupt_handler);
     idt.general_protection_fault
-        .set_handler_fn(general_protection_fault_handler);
+        .set_handler_fn(general_protection_exception_interrupt_handler);
+    idt.page_fault
+        .set_handler_fn(page_fault_exception_interrupt_handler);
+    idt.x87_floating_point
+        .set_handler_fn(fpu_floating_point_error_interrupt_handler);
+    idt.alignment_check
+        .set_handler_fn(alignment_check_exception_interrupt_handler);
+    idt.machine_check
+        .set_handler_fn(machine_check_exception_interrupt_handler);
+    idt.simd_floating_point
+        .set_handler_fn(simd_floating_point_exception_interrupt_handler);
+    idt.virtualization
+        .set_handler_fn(virtualization_exception_interrupt_handler);
+    idt.cp_protection_exception
+        .set_handler_fn(control_protection_exception_interrupt_handler);
     idt[InterruptVector::LocalAPICTimer as u8].set_handler_fn(timer::interrupt_handler);
     idt[InterruptVector::ExternalIrqTimer.as_u8()]
         .set_handler_fn(external_irq_timer_interrupt_handler);
@@ -68,38 +105,6 @@ static IDT: Lazy<InterruptDescriptorTable> = Lazy::new(|| {
 
     idt
 });
-
-extern "x86-interrupt" fn page_fault_handler(
-    stack_frame: InterruptStackFrame,
-    _error_code: PageFaultErrorCode,
-) {
-    error!(
-        "EXCEPTION: PAGE FAULT\n{:#?} err_code:{:#?}",
-        stack_frame, _error_code
-    );
-
-    loop {
-        unsafe {
-            core::arch::asm!("hlt");
-        }
-    }
-}
-
-extern "x86-interrupt" fn general_protection_fault_handler(
-    stack_frame: InterruptStackFrame,
-    _error_code: u64,
-) {
-    error!(
-        "EXCEPTION: GP FAULT\n{:#?} err_code:{:#?}",
-        stack_frame, _error_code
-    );
-
-    loop {
-        unsafe {
-            core::arch::asm!("hlt");
-        }
-    }
-}
 
 pub fn init() {
     init_idt();
@@ -222,39 +227,330 @@ pub fn notify_end_of_interrupt() {
     LAPIC.lock().write_end_of_interrupt_register(0);
 }
 
-extern "x86-interrupt" fn breakpoint_handler(_stack_frame: InterruptStackFrame) {
-    info!("breakpoint exception occured.");
-    notify_end_of_interrupt();
-}
-
-extern "x86-interrupt" fn double_fault_handler(
-    _stack_frame: InterruptStackFrame,
-    _error_code: u64,
-) -> ! {
-    panic!("double fault occurred.");
-}
-
-// extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-//     timer::local_apic_timer_interrupt_hook();
-//     message::enqueue(Message::LocalAPICTimerInterrupt);
-//     notify_end_of_interrupt();
-// }
-
+#[align16_fn]
 extern "x86-interrupt" fn external_irq_timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     error!("An external irq timer interrupt was happened.");
     notify_end_of_interrupt();
 }
 
+#[align16_fn]
 extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
     error!("A mouse interrupt was happned.");
     notify_end_of_interrupt();
 }
 
+#[align16_fn]
 extern "x86-interrupt" fn external_keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     error!("A mouse interrupt was happned.");
     notify_end_of_interrupt();
 }
 
+#[align16_fn]
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
     info!("Spurious interrupt.");
+}
+
+fn dump_frame(frame: &InterruptStackFrame) {
+    serial_emergency_println!("rip: 0x{:x}", frame.instruction_pointer.as_u64());
+    serial_emergency_println!("cs: 0x{:x}", frame.code_segment.0);
+    serial_emergency_println!("rflags: {:?}", frame.cpu_flags);
+    serial_emergency_println!("rsp: 0x{:x}", frame.stack_pointer.as_u64());
+    serial_emergency_println!("ss: 0x{:x}", frame.stack_segment.0);
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn divide_by_zero_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) {
+    serial_emergency_println!("interruption: divide by zero exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn debug_exception_interrupt_handler(stack_frame: InterruptStackFrame) {
+    serial_emergency_println!("interruption: debug exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn nmi_interrupt_handler(stack_frame: InterruptStackFrame) {
+    serial_emergency_println!("interruption: nmi interrupt");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn breakpoint_exception_interrupt_handler(stack_frame: InterruptStackFrame) {
+    serial_emergency_println!("interruption: breakpoint exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn overflow_exception_interrupt_handler(stack_frame: InterruptStackFrame) {
+    serial_emergency_println!("interruption: overflow exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn bound_range_exceeded_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) {
+    serial_emergency_println!("interruption: boud range exceeded interrupt");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn invalid_opecode_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) {
+    serial_emergency_println!("interruption: invalid opecode exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn device_not_available_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) {
+    serial_emergency_println!("interruption: device not available exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn double_fault_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) -> ! {
+    serial_emergency_println!(
+        "interruption: double fault exception, error code: 0x{:x}",
+        error_code
+    );
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn coprocessor_segment_overrun_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) {
+    serial_emergency_println!("interruption: coprocessor segment overrun");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn invalid_tss_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    serial_emergency_println!(
+        "interruption: invalid tss exception, error code: 0x{:x}",
+        error_code
+    );
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn segment_not_present_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    serial_emergency_println!(
+        "interruption: segment not present exception, error code: 0x{:x}",
+        error_code
+    );
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn stack_fault_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    serial_emergency_println!(
+        "interruption: stack fault exception, error code: 0x{:x}",
+        error_code
+    );
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn general_protection_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    serial_emergency_println!(
+        "interruption: general protection exception, error code: 0x{:x}",
+        error_code
+    );
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn page_fault_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: PageFaultErrorCode,
+) {
+    serial_emergency_println!(
+        "interruption: page fault exception, error code: {:?}",
+        error_code
+    );
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn fpu_floating_point_error_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) {
+    serial_emergency_println!("interruption: fpu floating point error");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn alignment_check_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    serial_emergency_println!(
+        "interruption: alignment check exception, error code: 0x{:x}",
+        error_code
+    );
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn machine_check_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) -> ! {
+    serial_emergency_println!("interruption: machine check exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn simd_floating_point_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) {
+    serial_emergency_println!("interruption: simd floating point exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn virtualization_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+) {
+    serial_emergency_println!("interruption: virtualization exception");
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
+}
+
+#[align16_fn]
+extern "x86-interrupt" fn control_protection_exception_interrupt_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    serial_emergency_println!(
+        "interruption: control protection exception, error code: 0x{:x}",
+        error_code
+    );
+    dump_frame(&stack_frame);
+    loop {
+        unsafe {
+            asm!("hlt");
+        }
+    }
 }

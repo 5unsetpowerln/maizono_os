@@ -37,7 +37,5 @@ pub unsafe fn write_msr(msr: u32, value: u64) {
 // MMIO
 
 pub unsafe fn mmio_read_u32(addr: u64) -> u32 {
-    unsafe {
-        return read_volatile(addr as *const u32);
-    }
+    unsafe { read_volatile(addr as *const u32) }
 }

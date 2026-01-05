@@ -12,7 +12,7 @@ pub extern "sysv64" fn _start(argc: usize, argv: *const *const u8) -> Option<i64
 }
 
 fn main(args: &[&str]) -> Option<i64> {
-    loop {}
+    // loop {}
 
     let mut stack = [0; 100];
     let mut stack_ptr = 0;
