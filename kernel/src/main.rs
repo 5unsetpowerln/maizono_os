@@ -30,7 +30,6 @@ mod mutex;
 mod paging;
 mod pci;
 mod qemu;
-mod segment;
 mod serial;
 mod syscall;
 mod task;

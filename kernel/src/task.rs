@@ -11,8 +11,6 @@ use spin::Once;
 use crate::gdt::{get_kernel_cs, get_kernel_ss};
 use crate::message::Message;
 use crate::mutex::{Mutex, MutexGuard};
-use crate::serial::emergency_print;
-use crate::serial_emergency_println;
 use crate::timer::{self, TIMER_FREQ, Timer, TimerKind};
 use crate::util::read_cr3_raw;
 
