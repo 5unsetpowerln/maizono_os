@@ -18,10 +18,10 @@ use crate::{frame_manager, serial_emergency_println};
 
 static mut GDT: GlobalDescTable = GlobalDescTable::new();
 static mut TSS: TaskStateSegment = TaskStateSegment::new();
-static KERNEL_CS: Once<SegmentSelector> = Once::new();
-static KERNEL_SS: Once<SegmentSelector> = Once::new();
-static USER_CS: Once<SegmentSelector> = Once::new();
-static USER_SS: Once<SegmentSelector> = Once::new();
+pub static KERNEL_CS: Once<SegmentSelector> = Once::new();
+pub static KERNEL_SS: Once<SegmentSelector> = Once::new();
+pub static USER_CS: Once<SegmentSelector> = Once::new();
+pub static USER_SS: Once<SegmentSelector> = Once::new();
 
 // Global Descriptor Table
 struct GlobalDescTable {
@@ -87,10 +87,11 @@ impl DerefMut for TaskStateSegment {
 pub fn init() {
     let gdt = unsafe { &mut *addr_of_mut!(GDT) };
 
+    // syscall/sysret時に設定されるCS/SSの値をsyscall::initで登録するが、この順番でGDTを設定しないと正しく登録できない
     let kernel_cs = gdt.append(Descriptor::kernel_code_segment());
     let kernel_ss = gdt.append(Descriptor::kernel_data_segment());
-    let user_cs = gdt.append(Descriptor::user_code_segment());
     let user_ss = gdt.append(Descriptor::user_data_segment());
+    let user_cs = gdt.append(Descriptor::user_code_segment());
 
     // init TSS
     let tss_tr = unsafe {

@@ -32,6 +32,7 @@ mod pci;
 mod qemu;
 mod segment;
 mod serial;
+mod syscall;
 mod task;
 mod terminal;
 mod timer;
@@ -199,6 +200,8 @@ fn main(boot_info: &BootInfo) -> ! {
     task::init();
 
     terminal::init();
+
+    syscall::init();
 
     {
         let mut task_manager = task::TASK_MANAGER.wait().lock();

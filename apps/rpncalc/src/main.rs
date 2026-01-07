@@ -1,7 +1,9 @@
 #![no_std]
 #![no_main]
+#![feature(naked_functions)]
+#![feature(ascii_char)]
 
-use core::arch::asm;
+use core::arch::{asm, naked_asm};
 use core::panic::PanicInfo;
 
 #[unsafe(no_mangle)]
@@ -14,40 +16,48 @@ pub extern "sysv64" fn _start(argc: usize, argv: *const *const u8) -> Option<i64
 fn main(args: &[&str]) -> Option<i64> {
     // loop {}
 
-    let mut stack = [0; 100];
-    let mut stack_ptr = 0;
+    // let mut stack = [0; 100];
+    // let mut stack_ptr = 0;
 
-    fn pop(stack: &mut [i64], stack_ptr: &mut usize) -> i64 {
-        let value = stack[*stack_ptr];
-        *stack_ptr -= 1;
-        value
-    }
+    // fn pop(stack: &mut [i64], stack_ptr: &mut usize) -> i64 {
+    //     let value = stack[*stack_ptr];
+    //     *stack_ptr -= 1;
+    //     value
+    // }
 
-    fn push(stack: &mut [i64], stack_ptr: &mut usize, value: i64) {
-        *stack_ptr += 1;
-        stack[*stack_ptr] = value;
-    }
+    // fn push(stack: &mut [i64], stack_ptr: &mut usize, value: i64) {
+    //     *stack_ptr += 1;
+    //     stack[*stack_ptr] = value;
+    // }
 
-    for arg in args {
-        if **arg == *"+" {
-            let b = pop(&mut stack, &mut stack_ptr);
-            let a = pop(&mut stack, &mut stack_ptr);
-            push(&mut stack, &mut stack_ptr, a + b);
-        } else if **arg == *"-" {
-            let b = pop(&mut stack, &mut stack_ptr);
-            let a = pop(&mut stack, &mut stack_ptr);
-            push(&mut stack, &mut stack_ptr, a - b);
-        } else {
-            let a = match (*arg).parse::<i64>() {
-                Ok(i) => i,
-                Err(_) => return None,
-            };
+    // for arg in args {
+    //     if **arg == *"+" {
+    //         let b = pop(&mut stack, &mut stack_ptr);
+    //         let a = pop(&mut stack, &mut stack_ptr);
+    //         push(&mut stack, &mut stack_ptr, a + b);
+    //     } else if **arg == *"-" {
+    //         let b = pop(&mut stack, &mut stack_ptr);
+    //         let a = pop(&mut stack, &mut stack_ptr);
+    //         push(&mut stack, &mut stack_ptr, a - b);
+    //     } else {
+    //         let a = match (*arg).parse::<i64>() {
+    //             Ok(i) => i,
+    //             Err(_) => return None,
+    //         };
 
-            push(&mut stack, &mut stack_ptr, a);
-        }
-    }
+    //         push(&mut stack, &mut stack_ptr, a);
+    //     }
+    // }
 
-    Some(pop(&mut stack, &mut stack_ptr))
+    // let result = pop(&mut stack, &mut stack_ptr);
+    serial_write("hello".as_ascii().unwrap().as_ptr(), "hello".len() as u64);
+
+    loop {}
+}
+
+#[naked]
+extern "C" fn serial_write(buffer: *const core::ascii::Char, size: u64) {
+    unsafe { naked_asm!("mov eax, 0x80000000", "syscall", "ret") }
 }
 
 #[panic_handler]

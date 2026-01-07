@@ -5,6 +5,10 @@ use core::ptr::read_volatile;
 
 pub const IA32_APIC_BASE_MSR: u32 = 0x1B;
 pub const IA32_X2APIC_APICID: u32 = 0x802;
+pub const IA32_EFER: u32 = 0xc0000080;
+pub const IA32_STAR: u32 = 0xc0000081;
+pub const IA32_LSTAR: u32 = 0xc0000082;
+pub const IA32_FMASK: u32 = 0xc0000084;
 
 pub unsafe fn read_msr(msr: u32) -> u64 {
     let high: u32;

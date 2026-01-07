@@ -10,8 +10,9 @@ use ::acpi::madt::InterruptSourceOverrideEntry;
 use apic::{IoApic, LocalApic};
 use core::arch::{asm, naked_asm};
 use log::{error, info};
-use proc_macro_lib::align16_fn;
+use proc_macro_lib::align16_fn_for_interrupt;
 use spin::Lazy;
+use x86_64::VirtAddr;
 use x86_64::instructions::port::Port;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
@@ -227,25 +228,25 @@ pub fn notify_end_of_interrupt() {
     LAPIC.lock().write_end_of_interrupt_register(0);
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn external_irq_timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
     error!("An external irq timer interrupt was happened.");
     notify_end_of_interrupt();
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn mouse_interrupt_handler(_stack_frame: InterruptStackFrame) {
     error!("A mouse interrupt was happned.");
     notify_end_of_interrupt();
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn external_keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     error!("A mouse interrupt was happned.");
     notify_end_of_interrupt();
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
     info!("Spurious interrupt.");
 }
@@ -258,7 +259,7 @@ fn dump_frame(frame: &InterruptStackFrame) {
     serial_emergency_println!("ss: 0x{:x}", frame.stack_segment.0);
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn divide_by_zero_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) {
@@ -271,7 +272,7 @@ extern "x86-interrupt" fn divide_by_zero_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn debug_exception_interrupt_handler(stack_frame: InterruptStackFrame) {
     serial_emergency_println!("interruption: debug exception");
     dump_frame(&stack_frame);
@@ -282,7 +283,7 @@ extern "x86-interrupt" fn debug_exception_interrupt_handler(stack_frame: Interru
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn nmi_interrupt_handler(stack_frame: InterruptStackFrame) {
     serial_emergency_println!("interruption: nmi interrupt");
     dump_frame(&stack_frame);
@@ -293,7 +294,7 @@ extern "x86-interrupt" fn nmi_interrupt_handler(stack_frame: InterruptStackFrame
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn breakpoint_exception_interrupt_handler(stack_frame: InterruptStackFrame) {
     serial_emergency_println!("interruption: breakpoint exception");
     dump_frame(&stack_frame);
@@ -304,7 +305,7 @@ extern "x86-interrupt" fn breakpoint_exception_interrupt_handler(stack_frame: In
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn overflow_exception_interrupt_handler(stack_frame: InterruptStackFrame) {
     serial_emergency_println!("interruption: overflow exception");
     dump_frame(&stack_frame);
@@ -315,7 +316,7 @@ extern "x86-interrupt" fn overflow_exception_interrupt_handler(stack_frame: Inte
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn bound_range_exceeded_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) {
@@ -328,7 +329,7 @@ extern "x86-interrupt" fn bound_range_exceeded_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn invalid_opecode_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) {
@@ -341,7 +342,7 @@ extern "x86-interrupt" fn invalid_opecode_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn device_not_available_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) {
@@ -354,7 +355,7 @@ extern "x86-interrupt" fn device_not_available_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn double_fault_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
@@ -371,7 +372,7 @@ extern "x86-interrupt" fn double_fault_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn coprocessor_segment_overrun_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) {
@@ -384,7 +385,7 @@ extern "x86-interrupt" fn coprocessor_segment_overrun_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn invalid_tss_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
@@ -401,7 +402,7 @@ extern "x86-interrupt" fn invalid_tss_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn segment_not_present_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
@@ -418,7 +419,7 @@ extern "x86-interrupt" fn segment_not_present_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn stack_fault_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
@@ -435,13 +436,13 @@ extern "x86-interrupt" fn stack_fault_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn general_protection_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
     serial_emergency_println!(
-        "interruption: general protection exception, error code: 0x{:x}",
+        "interruption: page fault exception, error code: {:?}",
         error_code
     );
     dump_frame(&stack_frame);
@@ -452,7 +453,7 @@ extern "x86-interrupt" fn general_protection_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn page_fault_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
     error_code: PageFaultErrorCode,
@@ -469,7 +470,7 @@ extern "x86-interrupt" fn page_fault_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn fpu_floating_point_error_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) {
@@ -482,7 +483,7 @@ extern "x86-interrupt" fn fpu_floating_point_error_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn alignment_check_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
@@ -499,7 +500,7 @@ extern "x86-interrupt" fn alignment_check_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn machine_check_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) -> ! {
@@ -512,7 +513,7 @@ extern "x86-interrupt" fn machine_check_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn simd_floating_point_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) {
@@ -525,7 +526,7 @@ extern "x86-interrupt" fn simd_floating_point_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn virtualization_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
 ) {
@@ -538,7 +539,7 @@ extern "x86-interrupt" fn virtualization_exception_interrupt_handler(
     }
 }
 
-#[align16_fn]
+#[align16_fn_for_interrupt]
 extern "x86-interrupt" fn control_protection_exception_interrupt_handler(
     stack_frame: InterruptStackFrame,
     error_code: u64,
